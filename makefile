@@ -11,7 +11,7 @@ eweb: eweb.o dwebsvr.o
 simple: simple.o dwebsvr.o
 
 run: eweb
-	./eweb 1234
+	cd content && ../eweb 1234
 
 clean:
 	rm -vf *.o *.exe eweb simple
