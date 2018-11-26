@@ -1,5 +1,4 @@
-dweb.xcodeproj/
-
-# osx noise
-.DS_Store
-profile
+*.a
+*.o
+eweb
+simple
