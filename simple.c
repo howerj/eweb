@@ -1,7 +1,8 @@
+#include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include "dwebsvr.h"
+#include "eweb.h"
 
 static void simple_response(struct hitArgs *args, char *path, char *request_body, http_verb type) {
 	UNUSED(request_body);

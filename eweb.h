@@ -4,8 +4,10 @@
  ** at http://www.codehosting.net   See the LICENSE file for more details.  **
  ****************************************************************************/
 
-#ifndef _DWEBSVR_H
-#define _DWEBSVR_H
+#ifndef DWEBSVR_H
+#define DWEBSVR_H
+
+#include <stddef.h>
 
 #define SINGLE_THREADED (1)
 #define MULTI_PROCESS   (2)
@@ -37,11 +39,11 @@ void *calloc_or_quit(size_t num, size_t size, const char *src_file, int src_line
 #define callocx(num, size) calloc_or_quit((num), (size), __FILE__, __LINE__)
 
 typedef struct {
-	void *ptr;		// the pointer to the data
-	int alloc_bytes;	// the number of bytes allocated
-	int used_bytes;		// the number of bytes used
-	int elem_bytes;		// the number of bytes per element
-	int chunk_size;		// the number of elements to increase space by
+	void *ptr;       // the pointer to the data
+	int alloc_bytes; // the number of bytes allocated
+	int used_bytes;  // the number of bytes used
+	int elem_bytes;  // the number of bytes per element
+	int chunk_size;  // the number of elements to increase space by
 } blk;
 
 typedef blk STRING;
@@ -58,23 +60,24 @@ typedef struct {
 	char *data;
 } FORM_VALUE;
 
+struct hitArgs;
+typedef void (*responder_cb_t) (struct hitArgs * args, char *, char *, http_verb);
+typedef void (*logger_cb_t) (log_type, char *, char *, int);
+
 struct hitArgs {
+	responder_cb_t responder_function;
+	logger_cb_t logger_function;
 	STRING *buffer;
 	char *headers;
 	char *content_type;
-	int content_length;
 	FORM_VALUE *form_values;
+	int content_length;
 	int form_value_counter;
 	int socketfd;
 	int hit;
-	void (*responder_function) (struct hitArgs * args, char *, char *,
-				    http_verb);
-	void (*logger_function) (log_type, char *, char *, int);
 };
 
-int dwebserver(int port, void (*responder_func) (struct hitArgs * args, char *, char *, http_verb),
-	       void (*logger_func) (log_type, char *, char *, int));
-
+int dwebserver(int port, responder_cb_t responder_func, logger_cb_t logger_func);
 void dwebserver_kill(void);
 
 struct http_header get_header(const char *name, char *request, int max_len);

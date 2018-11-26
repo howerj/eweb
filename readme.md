@@ -10,10 +10,10 @@ This project is a work in progress.
 ## To Do
 
 * [ ] Cleanup project
-  * [ ] API changes
+  * [ ] API changes (callbacks, error codes)
   * [ ] Change logo
   * [ ] Change project references
-* [ ] Remove gnu99 features
+* [x] Remove gnu99 features
 * [ ] Separate out operating system dependencies
   * [ ] Create callback mechanism
   * [ ] Make a Unix file, containing
@@ -21,6 +21,7 @@ This project is a work in progress.
 * [ ] Lint the code
 * [ ] Make a version that communicates via standard in/standard out to
   facilitate fuzzing
+* [ ] Allow multiple web servers to run at the same time
 * [ ] More assertions
 * [ ] Make code const correct
 * [ ] Integrate <https://github.com/howerj/pickle> for CGI applications.
@@ -28,6 +29,12 @@ This project is a work in progress.
 * [ ] Integrate with <https://cr.yp.to/cdb.html>
 * [ ] Demonstration code should restore terminal settings, or not mess them
   up on failure
+* [ ] Add getopt
+* [ ] Add manual page
+* [ ] Add basic authentication
+* [ ] Add optional HTTPS support
+* [ ] Make the web server robust in the face of an Out Of Memory condition,
+  it should release any memory and indicate failure.
 
 # The Original README.md file
 

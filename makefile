@@ -1,14 +1,14 @@
 CC=gcc
-CFLAGS=-Wall -Wextra -pedantic -O2 -std=gnu99
+CFLAGS=-Wall -Wextra -pedantic -O2 -std=c99
 LDFLAGS=-pthread
 
 .PHONY: all run clean
 
 all: eweb simple
 
-eweb: eweb.o dwebsvr.o
+eweb: eweb.o main.o
 
-simple: simple.o dwebsvr.o
+simple: eweb.o simple.o
 
 run: eweb
 	cd content && ../eweb 1234
