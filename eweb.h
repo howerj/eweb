@@ -92,7 +92,7 @@ void webhit(struct hitArgs *args);
 
 char *form_value(struct hitArgs *args, int i);
 char *form_name(struct hitArgs *args, int i);
-int string_matches_value(char *str, const char *value);
+int string_matches_value(const char *str, const char *value);
 
 void url_decode(char *s);
 char decode_char(char c);
