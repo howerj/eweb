@@ -16,6 +16,7 @@
 #include <sys/socket.h>
 #include <arpa/inet.h>
 #include <sys/time.h> // for struct timeval
+#include "os.h"
 
 // set the correct mode here, options are:
 // SINGLE_THREADED, MULTI_PROCESS, OR MULTI_THREADED
@@ -236,8 +237,7 @@ void webhit(struct hitArgs *args) {
 	char tmp_buf[READ_BUF_LEN + 1] = { 0 };
 	args->buffer = new_string(READ_BUF_LEN);
 
-	// we need to read the HTTP headers first...
-	// so loop until we receive "\r\n\r\n"
+	/* We need to read the HTTP headers first so loop until we receive "\r\n\r\n" */
 	while (get_body_start(string_chars(args->buffer)) < 0 && args->buffer->used_bytes <= MAX_INCOMING_REQUEST) {
 		memset(tmp_buf, 0, READ_BUF_LEN + 1);
 		request_size += read(args->socketfd, tmp_buf, READ_BUF_LEN);
@@ -268,7 +268,7 @@ void webhit(struct hitArgs *args) {
 	if (body_start >= 0)
 		body_size = request_size - body_start;
 
-	// safari seems to send the headers, and then the body slightly later
+	/* safari seems to send the headers, and then the body slightly later */
 	while (body_size < args->content_length
 	       && args->buffer->used_bytes <= MAX_INCOMING_REQUEST) {
 		memset(tmp_buf, 0, READ_BUF_LEN + 1);
@@ -278,13 +278,12 @@ void webhit(struct hitArgs *args) {
 			string_add(args->buffer, tmp_buf);
 			body_size = request_size - body_start;
 		} else {
-			// stop looping if we cannot read any more bytes
+			/* stop looping if we cannot read any more bytes */
 			break;
 		}
 	}
 
-	if (request_size <= 0) {
-		// cannot read request, so we'll stop
+	if (request_size <= 0) { /* cannot read request, so we'll stop */
 		forbidden_403(args, "failed to read http request");
 		finish_hit(args, 3);
 		return;
@@ -312,7 +311,7 @@ void webhit(struct hitArgs *args) {
 
 	int j = (type == HTTP_GET) ? 4 : 5;
 
-	// check for an absolute directory
+	/* check for an absolute directory */
 	if (string_chars(args->buffer)[j + 1] == '/') {
 		forbidden_403(args, "Sorry, absolute paths are not permitted");
 		finish_hit(args, 3);
@@ -320,7 +319,7 @@ void webhit(struct hitArgs *args) {
 	}
 
 	for (; j < i - 1; j++) {
-		// check for any parent directory use
+		/* check for any parent directory use */
 		if (string_chars(args->buffer)[j] == '.' && string_chars(args->buffer)[j + 1] == '.') {
 			forbidden_403(args, "Sorry, parent paths (..) are not permitted");
 			finish_hit(args, 3);
@@ -350,7 +349,6 @@ void webhit(struct hitArgs *args) {
 void *threadMain(void *targs) {
 	struct hitArgs *args = (struct hitArgs *)targs;
 	pthread_detach(pthread_self());
-
 	webhit(args);
 	return NULL;
 }
