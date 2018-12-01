@@ -1,5 +1,4 @@
 #include "eweb.h"
-#include "os.h"
 #include <assert.h>
 #include <stdio.h>
 #include <ctype.h>

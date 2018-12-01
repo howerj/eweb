@@ -11,6 +11,9 @@ eweb: eweb.o main.o ${OS}.o
 
 simple: eweb.o simple.o ${OS}.o
 
+check:
+	cppcheck --enable=all *.c 
+
 run: eweb
 	cd content && ../eweb 1234
 

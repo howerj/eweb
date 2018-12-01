@@ -24,6 +24,8 @@ This project is a work in progress.
 * [ ] Allow multiple web servers to run at the same time
 * [ ] More assertions
 * [ ] Make code const correct
+* [ ] Error codes should be used throughout, and errors caught instead of
+  ignored.
 * [ ] Integrate <https://github.com/howerj/pickle> for CGI applications.
 * [ ] Add a custom block allocator, for embedded use.
 * [ ] Integrate with <https://cr.yp.to/cdb.html>
