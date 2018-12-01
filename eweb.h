@@ -94,7 +94,7 @@ typedef struct {
 } FORM_VALUE;
 
 struct hitArgs;
-typedef void (*responder_cb_t) (eweb_os_t *w, struct hitArgs * args, char *, char *, http_verb);
+typedef int (*responder_cb_t) (eweb_os_t *w, struct hitArgs * args, char *, char *, http_verb);
 typedef void (*logger_cb_t) (log_type, char *, char *, int);
 
 struct hitArgs {
@@ -126,8 +126,8 @@ int eweb_ok_200(eweb_os_t *w, struct hitArgs *args, char *custom_headers, char *
 int eweb_logger(eweb_os_t *w, log_type type, char *s1, char *s2, int socket_fd);
 int eweb_webhit(eweb_os_t *w, struct hitArgs *args);
 
-char *eweb_form_value(struct hitArgs *args, int i);
-char *eweb_form_name(struct hitArgs *args, int i);
+char *eweb_form_value(struct hitArgs *args, long i);
+char *eweb_form_name(struct hitArgs *args, long i);
 int eweb_string_matches_value(const char *str, const char *value);
 
 void eweb_url_decode(char *s);

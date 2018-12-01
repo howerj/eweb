@@ -13,7 +13,6 @@
 #include <unistd.h>
 #include <errno.h>
 #include <pthread.h> // needed to run server on a new thread
-#include <termios.h> // needed for unbuffered_getch()
 
 #define FILE_CHUNK_SIZE (1024)
 #define BIGGEST_FILE    (100l * 1024l * 1024l)
@@ -22,30 +21,29 @@ static const struct {
 	char *ext;
 	char *filetype;
 } extensions[] = {
-	{  "gif",    "image/gif"},
-	{  "jpg",    "image/jpeg"},
-	{  "jpeg",   "image/jpeg"},
-	{  "png",    "image/png"},
-	{  "ico",    "image/x-icon"},
-	{  "zip",    "application/zip"},
-	{  "gz",     "application/gzip"},
-	{  "tar",    "application/x-tar"},
-	{  "htm",    "text/html"},
-	{  "html",   "text/html"},
-	{  "js",     "text/javascript"},
-	{  "txt",    "text/plain"},
-	{  "css",    "text/css"},
-	{  "map",    "application/json"},
-	{  "woff",   "application/font-woff"},
-	{  "woff2",  "application/font-woff2"},
-	{  "ttf",    "application/font-sfnt"},
-	{  "svg",    "image/svg+xml"},
-	{  "eot",    "application/vnd.ms-fontobject"},
-	{  "mp4",    "video/mp4"},
-	{  NULL,     NULL}
+	{  "gif",    "image/gif" },
+	{  "jpg",    "image/jpeg" },
+	{  "jpeg",   "image/jpeg" },
+	{  "png",    "image/png" },
+	{  "ico",    "image/x-icon" },
+	{  "zip",    "application/zip" },
+	{  "gz",     "application/gzip" },
+	{  "tar",    "application/x-tar" },
+	{  "htm",    "text/html" },
+	{  "html",   "text/html" },
+	{  "js",     "text/javascript" },
+	{  "txt",    "text/plain" },
+	{  "css",    "text/css" },
+	{  "map",    "application/json" },
+	{  "woff",   "application/font-woff" },
+	{  "woff2",  "application/font-woff2" },
+	{  "ttf",    "application/font-sfnt" },
+	{  "svg",    "image/svg+xml" },
+	{  "eot",    "application/vnd.ms-fontobject" },
+	{  "mp4",    "video/mp4" },
+	{  NULL,     NULL }
 };
 
-static struct termios original_settings;
 static pthread_t server_thread_id;
 
 static void log_filter(log_type type, char *s1, char *s2, int socket_fd) {
@@ -74,8 +72,6 @@ static void send_api_response(eweb_os_t *w, struct hitArgs *args, char *path, ch
 static void send_file_response(eweb_os_t *w, struct hitArgs *args, char *path, char *request_body, int path_length) {
 	assert(w);
 	UNUSED(request_body);
-	int file_id, i;
-	long len;
 	char *content_type = NULL;
 	string_t *response = new_string(FILE_CHUNK_SIZE);
 
@@ -96,8 +92,8 @@ static void send_file_response(eweb_os_t *w, struct hitArgs *args, char *path, c
 		return;
 	}
 	// work out the file type and check we support it
-	for (i = 0; extensions[i].ext != 0; i++) {
-		len = strlen(extensions[i].ext);
+	for (size_t i = 0; extensions[i].ext != 0; i++) {
+		const long len = strlen(extensions[i].ext);
 		if (!strncmp(&path[path_length - len], extensions[i].ext, len)) {
 			content_type = extensions[i].filetype;
 			break;
@@ -109,14 +105,15 @@ static void send_file_response(eweb_os_t *w, struct hitArgs *args, char *path, c
 		return;
 	}
 
-	if (file_id = open(path, O_RDONLY), file_id == -1) {
+	const int file_id = open(path, O_RDONLY);
+	if (file_id == -1) {
 		string_free(response);
 		eweb_notfound_404(w, args, "failed to open file");
 		return;
 	}
-	// open the file for reading
-	len = (long)lseek(file_id, (off_t) 0, SEEK_END);  // lseek to the file end to find the length
-	lseek(file_id, (off_t) 0, SEEK_SET);              // lseek back to the file start
+
+	long len = lseek(file_id, (off_t) 0, SEEK_END);
+	lseek(file_id, (off_t) 0, SEEK_SET);
 
 	if (len > BIGGEST_FILE) {
 		string_free(response);
@@ -124,7 +121,7 @@ static void send_file_response(eweb_os_t *w, struct hitArgs *args, char *path, c
 		return;
 	}
 
-	string_add(response, "HTTP/1.1 200 OK\nServer: dweb\n");
+	string_add(response, "HTTP/1.1 200 OK\nServer: eweb\n");
 	string_add(response, "Connection: close\n");
 	string_add(response, "Content-Type: ");
 	string_add(response, content_type);
@@ -144,19 +141,20 @@ static void send_file_response(eweb_os_t *w, struct hitArgs *args, char *path, c
 
 
 // decide if we need to send an API response or a file...
-static void send_response(eweb_os_t *w, struct hitArgs *args, char *path, char *request_body, http_verb type) {
+static int send_response(eweb_os_t *w, struct hitArgs *args, char *path, char *request_body, http_verb type) {
 	assert(w);
 	UNUSED(type);
 	const size_t path_length = strlen(path);
 	if (!strncmp(&path[path_length - 3], "api", 3)) {
 		send_api_response(w, args, path, request_body);
-		return;
+		return EWEB_OK;
 	}
 	if (path_length == 0) {
 		send_file_response(w, args, "index.html", request_body, 10);
-		return;
+		return EWEB_OK;
 	}
 	send_file_response(w, args, path, request_body, path_length);
+	return EWEB_OK;
 }
 
 static void *server_thread(void *args) {
@@ -168,21 +166,13 @@ static void *server_thread(void *args) {
 }
 
 static void close_down(void) {
-	tcsetattr(STDIN_FILENO, TCSANOW, &original_settings);
 	eweb_server_kill(NULL);
 	pthread_cancel(server_thread_id);
 	puts("Bye bye");
 }
 
 static void wait_for_key(void) {
-	struct termios unbuffered;
-	tcgetattr(STDIN_FILENO, &original_settings);
-
-	unbuffered = original_settings;
-	unbuffered.c_lflag &= ~(ECHO | ICANON);
-	tcsetattr(STDIN_FILENO, TCSANOW, &unbuffered);
-
-	getchar();
+	fgetc(stdin);
 	close_down();
 }
 
@@ -193,7 +183,7 @@ int main(int argc, char **argv) {
 		return 0;
 	}
 	if (argc > 2 && !strncmp(argv[2], "-d", 2)) { // don't read from the console or log anything
-		eweb_server(&w, atoi(argv[1]), &send_response, NULL);
+		eweb_server(&w, atoi(argv[1]), send_response, NULL);
 	} else {
 		if (pthread_create (&server_thread_id, NULL, server_thread, argv[1]) != 0) {
 			puts("Error: pthread_create could not create server thread");

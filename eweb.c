@@ -12,10 +12,6 @@
 #include <errno.h>
 #include <string.h>
 #include <signal.h>
-#include <fcntl.h>
-#include <sys/socket.h>
-#include <arpa/inet.h>
-#include <sys/time.h> // for struct timeval
 
 // set the correct mode here, options are:
 // SINGLE_THREADED, MULTI_PROCESS, OR MULTI_THREADED
@@ -56,36 +52,37 @@ static char *eweb_strtok(char *restrict s, const char *restrict sep, char **rest
 }
 
 // assumes a content type of "application/x-www-form-urlencoded" (the default type)
-int eweb_get_form_values(struct hitArgs *args, char *body) {
+static int eweb_get_form_values(eweb_os_t *w, struct hitArgs *args, char *body) {
+	assert(w);
 	assert(args);
 	assert(body);
-	size_t t = 0, alloc = FORM_VALUE_BLOCK;
+	long t = 0, alloc = FORM_VALUE_BLOCK;
 	char *saveptr = NULL;
 	char *token = eweb_strtok(body, "&", &saveptr);
 
 	args->form_values = mallocx(alloc * sizeof(FORM_VALUE));
 	memset(args->form_values, 0, alloc * sizeof(FORM_VALUE));
 
-	while (token != NULL) {
+	while (token) {
 		char *tmp = mallocx(strlen(token) + 1);
 		strcpy(tmp, token);
 		eweb_url_decode(tmp);
 
-		size_t i = 0;
-		const size_t tlen = strlen(tmp);
+		long i = 0;
+		const long tlen = strlen(tmp);
 		for (i = 0; i < tlen; i++)
 			if (tmp[i] == '=')
 				break;
 
 		if (i < tlen) {
 			if (alloc <= t) {
-				const size_t newsize = alloc + FORM_VALUE_BLOCK;
+				const long newsize = alloc + FORM_VALUE_BLOCK;
 				args->form_values = reallocx(args->form_values, newsize * sizeof(FORM_VALUE));
 				memset(args->form_values + alloc, 0, FORM_VALUE_BLOCK * sizeof(FORM_VALUE));
 				alloc = newsize;
 			}
 
-			args->form_values[t].data = mallocx((int)strlen(tmp) + 1);
+			args->form_values[t].data = mallocx(strlen(tmp) + 1);
 			strcpy(args->form_values[t].data, tmp);
 			args->form_values[t].name = args->form_values[t].data;
 			args->form_values[t].value = args->form_values[t].data + 1 + i;
@@ -96,17 +93,15 @@ int eweb_get_form_values(struct hitArgs *args, char *body) {
 		free(tmp);
 	}
 	args->form_value_counter = t;
-	return 0;
+	return EWEB_OK;
 }
 
 int eweb_clear_form_values(struct hitArgs *args) {
 	assert(args);
 	if (!args->form_values)
 		return EWEB_OK;
-	for (args->form_value_counter--; args->form_value_counter >= 0;
-	     args->form_value_counter--) {
+	for (args->form_value_counter--; args->form_value_counter >= 0; args->form_value_counter--)
 		free(args->form_values[args->form_value_counter].data);
-	}
 	free(args->form_values);
 	return EWEB_OK;
 }
@@ -143,11 +138,7 @@ int eweb_write_header(eweb_os_t *w, int socket_fd, char *head, long content_len)
 	snprintf(cl, sizeof(cl), "%ld", content_len);
 	string_add(header, cl);
 	string_add(header, "\r\n\r\n");
-#ifndef SO_NOSIGPIPE
-	send(socket_fd, string_chars(header), header->used_bytes - 1, MSG_NOSIGNAL);
-#else
-	write(socket_fd, string_chars(header), header->used_bytes - 1);
-#endif
+	w->write(w, socket_fd, string_chars(header), header->used_bytes - 1);
 	string_free(header);
 	return EWEB_OK;
 }
@@ -155,35 +146,31 @@ int eweb_write_header(eweb_os_t *w, int socket_fd, char *head, long content_len)
 int eweb_write_html(eweb_os_t *w, int socket_fd, char *head, char *html) {
 	assert(w);
 	eweb_write_header(w, socket_fd, head, strlen(html));
-#ifndef SO_NOSIGPIPE
-	send(socket_fd, html, strlen(html), MSG_NOSIGNAL);
-#else
-	write(socket_fd, html, strlen(html));
-#endif
+	w->write(w, socket_fd, html, strlen(html));
 	return EWEB_OK;
 }
 
 int eweb_forbidden_403(eweb_os_t *w, struct hitArgs *args, char *info) {
 	assert(args);
 	assert(info);
-	eweb_write_html(w, args->socketfd,
+	const int r = eweb_write_html(w, args->socketfd,
 		"HTTP/1.1 403 Forbidden\nServer: dweb\nConnection: close\nContent-Type: text/html",
 		"<html><head>\n<title>403 Forbidden</title>\n"
 		"</head><body>\n<h1>Forbidden</h1>\nThe requested URL, file type or operation is not allowed on this simple webserver.\n</body>"
 		"</html>");
 	args->logger_function(LOG, "403 FORBIDDEN", info, args->socketfd);
-	return EWEB_OK;
+	return r;
 }
 
 int eweb_notfound_404(eweb_os_t *w, struct hitArgs *args, char *info) {
 	assert(args);
 	assert(info);
-	eweb_write_html(w, args->socketfd,
+	const int r = eweb_write_html(w, args->socketfd,
 		"HTTP/1.1 404 Not Found\nServer: dweb\nConnection: close\nContent-Type: text/html",
 		"<html><head>\n<title>404 Not Found</title>\n"
 		"</head><body>\n<h1>Not Found</h1>\nThe requested URL was not found on this server.\n</body></html>");
 	args->logger_function(LOG, "404 NOT FOUND", info, args->socketfd);
-	return EWEB_OK;
+	return r;
 }
 
 int eweb_ok_200(eweb_os_t *w, struct hitArgs *args, char *custom_headers, char *html, char *path) {
@@ -231,7 +218,7 @@ struct http_header eweb_get_header(const char *name, char *request, int max_len)
 }
 
 long eweb_get_body_start(char *request) {
-	/* return the starting index of the request body, so ... just find the end of the HTTP headers */
+	/* return the starting index of the request body, or end of the HTTP headers */
 	char *ptr = strstr(request, "\r\n\r\n");
 	return (ptr == NULL) ? -1 : (ptr + 4) - request;
 }
@@ -249,15 +236,15 @@ http_verb eweb_request_type(char *request) {
 
 int eweb_webhit(eweb_os_t *w, struct hitArgs *args) {
 	long i = 0, body_size = 0, request_size = 0;
-	char tmp_buf[READ_BUF_LEN + 1] = { 0 };
+	char buf[READ_BUF_LEN + 1] = { 0 };
 	args->buffer = new_string(READ_BUF_LEN);
 
 	/* We need to read the HTTP headers first so loop until we receive "\r\n\r\n" */
 	while (eweb_get_body_start(string_chars(args->buffer)) < 0 && args->buffer->used_bytes <= MAX_INCOMING_REQUEST) {
-		memset(tmp_buf, 0, READ_BUF_LEN + 1);
-		request_size += read(args->socketfd, tmp_buf, READ_BUF_LEN);
-		string_add(args->buffer, tmp_buf);
-		if (tmp_buf[0] == 0)
+		memset(buf, 0, READ_BUF_LEN + 1);
+		request_size += w->read(w, args->socketfd, buf, READ_BUF_LEN);
+		string_add(args->buffer, buf);
+		if (buf[0] == 0)
 			break;
 	}
 
@@ -272,7 +259,7 @@ int eweb_webhit(eweb_os_t *w, struct hitArgs *args) {
 	const long headers_end = body_start - 4;
 
 	if (headers_end > 0) {
-		args->headers = mallocx((int)headers_end + 1);
+		args->headers = mallocx(headers_end + 1);
 		strncpy(args->headers, string_chars(args->buffer), headers_end);
 		args->headers[headers_end] = 0;
 	} else {
@@ -286,11 +273,11 @@ int eweb_webhit(eweb_os_t *w, struct hitArgs *args) {
 	/* safari seems to send the headers, and then the body slightly later */
 	while (body_size < args->content_length
 	       && args->buffer->used_bytes <= MAX_INCOMING_REQUEST) {
-		memset(tmp_buf, 0, READ_BUF_LEN + 1);
-		i = read(args->socketfd, tmp_buf, READ_BUF_LEN);
+		memset(buf, 0, READ_BUF_LEN + 1);
+		i = w->read(w, args->socketfd, buf, READ_BUF_LEN);
 		if (i > 0) {
 			request_size += i;
-			string_add(args->buffer, tmp_buf);
+			string_add(args->buffer, buf);
 			body_size = request_size - body_start;
 		} else {
 			/* stop looping if we cannot read any more bytes */
@@ -347,9 +334,8 @@ int eweb_webhit(eweb_os_t *w, struct hitArgs *args) {
 	if (j > 0) {
 		args->content_type = mallocx(j + 1);
 		strncpy(args->content_type, ctype.value, j);
-
-		if (!eweb_string_matches_value (args->content_type, "application/x-www-form-urlencoded"))
-			eweb_get_form_values(args, body);
+		if (eweb_string_matches_value(args->content_type, "application/x-www-form-urlencoded"))
+			eweb_get_form_values(w, args, body);
 	} else {
 		args->content_type = mallocx(1);
 		args->content_type[0] = 0;
@@ -370,7 +356,7 @@ static void *eweb_threadMain(void *targs) {
 }
 #endif
 
-void eweb_inthandler(int sig) {
+static void eweb_inthandler(int sig) {
 	if (doing_shutdown == 1)
 		return;
 
@@ -390,76 +376,28 @@ int eweb_server_kill(eweb_os_t *w) {
 }
 
 int eweb_server(eweb_os_t *w, int port, responder_cb_t responder_func, logger_cb_t logger_func) {
-	struct sockaddr_in cli_addr = { 0 }, serv_addr = { 0 };
 
 	if (port <= 0 || port > 60000) {
 		logger_func(ERROR, "Invalid port number (try 1 - 60000)", "", 0);
 		exit(3);
 	}
-	// ignore child process deaths
-#ifndef SIGCLD
-	signal(SIGCHLD, SIG_IGN);
-#else
-	signal(SIGCLD, SIG_IGN);
-#endif
-	signal(SIGHUP, SIG_IGN);	// ignore terminal hangups
-	signal(SIGPIPE, SIG_IGN);	// ignore broken pipes
 
-	if ((listenfd = socket(AF_INET, SOCK_STREAM, 0)) < 0) {
+	if (w->init(w) < 0) {
+		return EWEB_ERROR;
+	}
+
+	if ((listenfd = w->open(w, port)) < 0) {
 		logger_func(ERROR, "system call", "socket", 0);
-		return 0;
-	}
-	// But to support Linux, I've also used MSG_NOSIGNAL:
-	// http://stackoverflow.com/questions/108183/how-to-prevent-sigpipes-or-handle-them-properly/450130#450130
-
-	int y = 1;
-#ifdef SO_NOSIGPIPE
-	// use SO_NOSIGPIPE, to ignore any SIGPIPEs
-	if (setsockopt(listenfd, SOL_SOCKET, SO_NOSIGPIPE, &y, sizeof(y)) < 0) {
-		logger_func(ERROR, "system call", "setsockopt -> SO_NOSIGPIPE", 0);
-		return 0;
-	}
-	y = 1;
-#endif
-
-	// use SO_REUSEADDR, so we can restart the server without waiting
-	if (setsockopt(listenfd, SOL_SOCKET, SO_REUSEADDR, &y, sizeof(y)) < 0) {
-		logger_func(ERROR, "system call", "setsockopt -> SO_REUSEADDR", 0);
-		return 0;
-	}
-	// as soon as listenfd is set, keep a handler
-	// so we can close it on exit
-	signal(SIGINT, &eweb_inthandler);
-	signal(SIGTERM, &eweb_inthandler);
-
-	serv_addr.sin_family = AF_INET;
-	serv_addr.sin_addr.s_addr = htonl(INADDR_ANY);
-	serv_addr.sin_port = htons(port);
-
-	if (bind(listenfd, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0) {
-		logger_func(ERROR, "system call", "bind", 0);
-		return 0;
-	}
-
-	if (listen(listenfd, 64) < 0) {
-		logger_func(ERROR, "system call", "listen", 0);
-		return 0;
+		return EWEB_ERROR;
 	}
 
 	for (int hit = 1;; hit++) {
-		socklen_t length = sizeof(cli_addr);
-		const int socketfd = accept(listenfd, (struct sockaddr *)&cli_addr, &length);
+		const int socketfd = w->accept(w, listenfd);
 		if (socketfd  < 0) {
 			if (doing_shutdown == 0 && logger_func != NULL)
 				logger_func(ERROR, "system call", "accept", 0);
 			continue;
 		}
-
-		// use a 60 second timeout on individual sockets
-		struct timeval timeout = { .tv_sec = 60, .tv_usec = 0 };
-		// apply the timeout to this socket
-		if (setsockopt (socketfd, SOL_SOCKET, SO_RCVTIMEO, (char *)&timeout, sizeof(struct timeval)) < 0)
-			logger_func(ERROR, "system call", "setsockopt -> SO_RCVTIMEO", 0);
 
 		struct hitArgs *args = mallocx(sizeof(struct hitArgs));
 		memset(args, 0, sizeof *args);
@@ -494,6 +432,7 @@ int eweb_server(eweb_os_t *w, int port, responder_cb_t responder_func, logger_cb
 		}
 #endif
 	}
+	return EWEB_OK;
 }
 
 // The same algorithm as found here:
@@ -524,16 +463,16 @@ char eweb_decode_char(char c) {
 	return c <= '9' ? c - '0' : c - 'a' + 10;
 }
 
-char *eweb_form_value(struct hitArgs *args, int i) {
+char *eweb_form_value(struct hitArgs *args, const long i) {
 	assert(args);
-	if (i >= args->form_value_counter)
+	if (i >= args->form_value_counter || i < 0)
 		return NULL;
 	return args->form_values[i].value;
 }
 
-char *eweb_form_name(struct hitArgs *args, int i) {
+char *eweb_form_name(struct hitArgs *args, const long i) {
 	assert(args);
-	if (i >= args->form_value_counter)
+	if (i >= args->form_value_counter || i < 0)
 		return NULL;
 	return args->form_values[i].name;
 }
