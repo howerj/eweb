@@ -8,7 +8,6 @@
 #include <assert.h>
 #include <stdio.h>
 #include <stdlib.h>
-#include <fcntl.h>
 #include <string.h>
 #include <unistd.h>
 #include <errno.h>
@@ -53,7 +52,7 @@ static void log_filter(log_type type, char *s1, char *s2, int socket_fd) {
 }
 
 // a simple API, it receives a number, increments it and returns the response
-static void send_api_response(eweb_os_t *w, struct hitArgs *args, char *path, char *request_body) {
+static int send_api_response(eweb_os_t *w, struct hitArgs *args, char *path, char *request_body) {
 	assert(w);
 	UNUSED(request_body);
 	char response[4] = { 0 };
@@ -63,13 +62,12 @@ static void send_api_response(eweb_os_t *w, struct hitArgs *args, char *path, ch
 		if (c > 99 || c < 0)
 			c = 0;
 		sprintf(response, "%d", ++c);
-		eweb_ok_200(w, args, "\nContent-Type: text/plain", response, path);
-	} else {
-		eweb_forbidden_403(w, args, "Bad request");
-	}
+		return eweb_ok_200(w, args, "\nContent-Type: text/plain", response, path);
+	} 
+	return eweb_forbidden_403(w, args, "Bad request");
 }
 
-static void send_file_response(eweb_os_t *w, struct hitArgs *args, char *path, char *request_body, int path_length) {
+static int send_file_response(eweb_os_t *w, struct hitArgs *args, char *path, char *request_body, long path_length) {
 	assert(w);
 	UNUSED(request_body);
 	char *content_type = NULL;
@@ -79,7 +77,7 @@ static void send_file_response(eweb_os_t *w, struct hitArgs *args, char *path, c
 		string_add(response, "<html><head><title>Response Page</title></head>");
 		string_add(response, "<body><h1>Thanks...</h1>You sent these values<br/><br/>");
 
-		for (int v = 0; v < args->form_value_counter; v++) {
+		for (long v = 0; v < args->form_value_counter; v++) {
 			string_add(response, eweb_form_name(args, v));
 			string_add(response, ": <b>");
 			string_add(response, eweb_form_value(args, v));
@@ -89,9 +87,9 @@ static void send_file_response(eweb_os_t *w, struct hitArgs *args, char *path, c
 		string_add(response, "</body></html>");
 		eweb_ok_200(w, args, "\nContent-Type: text/html", string_chars(response), path);
 		string_free(response);
-		return;
+		return EWEB_OK;
 	}
-	// work out the file type and check we support it
+	/* work out the file type and check we support it */
 	for (size_t i = 0; extensions[i].ext != 0; i++) {
 		const long len = strlen(extensions[i].ext);
 		if (!strncmp(&path[path_length - len], extensions[i].ext, len)) {
@@ -101,24 +99,23 @@ static void send_file_response(eweb_os_t *w, struct hitArgs *args, char *path, c
 	}
 	if (!content_type) {
 		string_free(response);
-		eweb_forbidden_403(w, args, "file extension type not supported");
-		return;
+		return eweb_forbidden_403(w, args, "file extension type not supported");
 	}
 
-	const int file_id = open(path, O_RDONLY);
-	if (file_id == -1) {
+	FILE *file = fopen(path, "rb");
+	if (!file) {
 		string_free(response);
-		eweb_notfound_404(w, args, "failed to open file");
-		return;
+		return eweb_notfound_404(w, args, "failed to open file");
 	}
 
-	long len = lseek(file_id, (off_t) 0, SEEK_END);
-	lseek(file_id, (off_t) 0, SEEK_SET);
+	fseek(file, 0, SEEK_END);
+	long len = ftell(file);
+	fseek(file, 0, SEEK_SET);
 
 	if (len > BIGGEST_FILE) {
 		string_free(response);
-		eweb_forbidden_403(w, args, "files this large are not supported");
-		return;
+		fclose(file);
+		return eweb_forbidden_403(w, args, "files this large are not supported");
 	}
 
 	string_add(response, "HTTP/1.1 200 OK\nServer: eweb\n");
@@ -127,34 +124,28 @@ static void send_file_response(eweb_os_t *w, struct hitArgs *args, char *path, c
 	string_add(response, content_type);
 	eweb_write_header(w, args->socketfd, string_chars(response), len);
 
-	// send file in blocks
-	while ((len = read(file_id, response->ptr, FILE_CHUNK_SIZE)) > 0) {
-		if (write(args->socketfd, response->ptr, len) <= 0)
+	/* send file in blocks */
+	while ((len = fread(response->ptr, 1, FILE_CHUNK_SIZE, file)) > 0) {
+		if (w->write(w, args->socketfd, response->ptr, len) <= 0)
 			break;
 	}
 	string_free(response);
-	close(file_id);
-
-	// allow socket to drain before closing
-	sleep(1);
+	fclose(file);
+	
+	w->sleep(w, 1); /* allow socket to drain before closing */
+	return EWEB_OK;
 }
 
 
-// decide if we need to send an API response or a file...
 static int send_response(eweb_os_t *w, struct hitArgs *args, char *path, char *request_body, http_verb type) {
 	assert(w);
 	UNUSED(type);
 	const size_t path_length = strlen(path);
-	if (!strncmp(&path[path_length - 3], "api", 3)) {
-		send_api_response(w, args, path, request_body);
-		return EWEB_OK;
-	}
-	if (path_length == 0) {
-		send_file_response(w, args, "index.html", request_body, 10);
-		return EWEB_OK;
-	}
-	send_file_response(w, args, path, request_body, path_length);
-	return EWEB_OK;
+	if (!strncmp(&path[path_length - 3], "api", 3))
+		return send_api_response(w, args, path, request_body);
+	if (path_length == 0)
+		return send_file_response(w, args, "index.html", request_body, 10);
+	return send_file_response(w, args, path, request_body, path_length);
 }
 
 static void *server_thread(void *args) {
@@ -182,8 +173,8 @@ int main(int argc, char **argv) {
 		printf("hint: dweb [port number]\n");
 		return 0;
 	}
-	if (argc > 2 && !strncmp(argv[2], "-d", 2)) { // don't read from the console or log anything
-		eweb_server(&w, atoi(argv[1]), send_response, NULL);
+	if (argc > 2 && !strncmp(argv[2], "-d", 2)) { /* don't read from the console or log anything */
+		return eweb_server(&w, atoi(argv[1]), send_response, NULL);
 	} else {
 		if (pthread_create (&server_thread_id, NULL, server_thread, argv[1]) != 0) {
 			puts("Error: pthread_create could not create server thread");
@@ -193,6 +184,7 @@ int main(int argc, char **argv) {
 		puts("dweb server started\nPress a key to quit");
 		wait_for_key();
 	}
+	return 0;
 }
 
 

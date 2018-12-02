@@ -43,6 +43,8 @@ struct eweb_os {
 	long (*open)(eweb_os_t *w, unsigned port);
 	long (*accept)(eweb_os_t *w, int listenfd);
 
+	long (*sleep)(eweb_os_t *w, unsigned seconds);
+
 	void (*log)(eweb_os_t *w, int error, const char *fmt, ...);
 	void (*exit)(eweb_os_t *w, int code);
 
@@ -115,9 +117,6 @@ enum { EWEB_OK, EWEB_ERROR };
 
 int eweb_server(eweb_os_t *w, int port, responder_cb_t responder_func, logger_cb_t logger_func);
 int eweb_server_kill(eweb_os_t *w);
-
-struct http_header eweb_get_header(const char *name, char *request, int max_len);
-
 int eweb_write_header(eweb_os_t *w, int socket_fd, char *head, long content_len);
 int eweb_write_html(eweb_os_t *w, int socket_fd, char *head, char *html);
 int eweb_forbidden_403(eweb_os_t *w, struct hitArgs *args, char *info);
@@ -126,12 +125,12 @@ int eweb_ok_200(eweb_os_t *w, struct hitArgs *args, char *custom_headers, char *
 int eweb_logger(eweb_os_t *w, log_type type, char *s1, char *s2, int socket_fd);
 int eweb_webhit(eweb_os_t *w, struct hitArgs *args);
 
+int eweb_string_matches_value(const char *str, const char *value);
 char *eweb_form_value(struct hitArgs *args, long i);
 char *eweb_form_name(struct hitArgs *args, long i);
-int eweb_string_matches_value(const char *str, const char *value);
-
 void eweb_url_decode(char *s);
 char eweb_decode_char(char c);
+struct http_header eweb_get_header(const char *name, char *request, int max_len);
 
 #define UNUSED(X) ((void)(X))
 

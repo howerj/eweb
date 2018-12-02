@@ -90,34 +90,34 @@ static int eweb_get_form_values(eweb_os_t *w, struct hitArgs *args, char *body) 
 		}
 
 		token = eweb_strtok(NULL, "&", &saveptr);
-		free(tmp);
+		w->free(w, tmp);
 	}
 	args->form_value_counter = t;
 	return EWEB_OK;
 }
 
-int eweb_clear_form_values(struct hitArgs *args) {
+static int eweb_clear_form_values(eweb_os_t *w, struct hitArgs *args) {
 	assert(args);
 	if (!args->form_values)
 		return EWEB_OK;
 	for (args->form_value_counter--; args->form_value_counter >= 0; args->form_value_counter--)
-		free(args->form_values[args->form_value_counter].data);
-	free(args->form_values);
+		w->free(w, args->form_values[args->form_value_counter].data);
+	w->free(w, args->form_values);
 	return EWEB_OK;
 }
 
-int eweb_finish_hit(struct hitArgs *args, int exit_code) {
+static int eweb_finish_hit(eweb_os_t *w, struct hitArgs *args, int exit_code) {
 	assert(args);
 	UNUSED(exit_code);
 	close(args->socketfd);
 	if (args->buffer)
 		string_free(args->buffer);
 	if (args->headers)
-		free(args->headers);
-	eweb_clear_form_values(args);
+		w->free(w, args->headers);
+	eweb_clear_form_values(w, args);
 	if (args->content_type)
-		free(args->content_type);
-	free(args);
+		w->free(w, args->content_type);
+	w->free(w, args);
 
 #if MODE == MULTI_PROCESS
 	exit(exit_code);
@@ -217,13 +217,13 @@ struct http_header eweb_get_header(const char *name, char *request, int max_len)
 	return retval;
 }
 
-long eweb_get_body_start(char *request) {
+static long eweb_get_body_start(char *request) {
 	/* return the starting index of the request body, or end of the HTTP headers */
 	char *ptr = strstr(request, "\r\n\r\n");
 	return (ptr == NULL) ? -1 : (ptr + 4) - request;
 }
 
-http_verb eweb_request_type(char *request) {
+static http_verb eweb_request_type(char *request) {
 	if (strncmp(request, "GET ", 4) == 0 || strncmp(request, "get ", 4) == 0)
 		return HTTP_GET;
 	if (strncmp(request, "POST ", 5) == 0 || strncmp(request, "post ", 5) == 0)
@@ -249,7 +249,7 @@ int eweb_webhit(eweb_os_t *w, struct hitArgs *args) {
 	}
 
 	if (request_size == 0) {
-		eweb_finish_hit(args, 3);
+		eweb_finish_hit(w, args, 3);
 		return EWEB_OK;
 	}
 
@@ -287,7 +287,7 @@ int eweb_webhit(eweb_os_t *w, struct hitArgs *args) {
 
 	if (request_size <= 0) { /* cannot read request, so we'll stop */
 		eweb_forbidden_403(w, args, "failed to read http request");
-		eweb_finish_hit(args, 3);
+		eweb_finish_hit(w, args, 3);
 		return EWEB_OK;
 	}
 
@@ -296,7 +296,7 @@ int eweb_webhit(eweb_os_t *w, struct hitArgs *args) {
 	const http_verb type = eweb_request_type(string_chars(args->buffer));
 	if (type == HTTP_NOT_SUPPORTED) {
 		eweb_forbidden_403(w, args, "Only simple GET and POST operations are supported");
-		eweb_finish_hit(args, 3);
+		eweb_finish_hit(w, args, 3);
 		return EWEB_OK;
 	}
 	// get a pointer to the request body (or NULL if it's not there)
@@ -316,7 +316,7 @@ int eweb_webhit(eweb_os_t *w, struct hitArgs *args) {
 	/* check for an absolute directory */
 	if (string_chars(args->buffer)[j + 1] == '/') {
 		eweb_forbidden_403(w, args, "Sorry, absolute paths are not permitted");
-		eweb_finish_hit(args, 3);
+		eweb_finish_hit(w, args, 3);
 		return EWEB_OK;
 	}
 
@@ -324,7 +324,7 @@ int eweb_webhit(eweb_os_t *w, struct hitArgs *args) {
 		/* check for any parent directory use */
 		if (string_chars(args->buffer)[j] == '.' && string_chars(args->buffer)[j + 1] == '.') {
 			eweb_forbidden_403(w, args, "Sorry, parent paths (..) are not permitted");
-			eweb_finish_hit(args, 3);
+			eweb_finish_hit(w, args, 3);
 			return EWEB_OK;
 		}
 	}
@@ -343,7 +343,7 @@ int eweb_webhit(eweb_os_t *w, struct hitArgs *args) {
 
 	// call the "responder function" which has been provided to do the rest
 	args->responder_function(w, args, string_chars(args->buffer) + ((type == HTTP_GET) ? 5 : 6), body, type);
-	eweb_finish_hit(args, 1);
+	eweb_finish_hit(w, args, 1);
 	return EWEB_OK;
 }
 
@@ -537,7 +537,7 @@ static void badd(block_t * b, const void *data, int len) {
 	memset((char*)b->ptr + b->used_bytes, 0, b->alloc_bytes - b->used_bytes);
 }
 
-void bfree(block_t * b) {
+static void bfree(block_t * b) {
 	assert(b);
 	free(b->ptr);
 	b->used_bytes = 0;

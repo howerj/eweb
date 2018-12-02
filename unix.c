@@ -175,6 +175,14 @@ static long eweb_deint(eweb_os_t *w) {
 	return 0;
 }
 
+static long eweb_sleep(eweb_os_t *w, unsigned seconds) {
+	assert(w);
+	UNUSED(w);
+	long i = seconds;
+	while((i = sleep(i)));
+	return i;
+}
+
 eweb_os_t eweb_os = {
 	.arena = NULL,
 	.free  = eweb_free,
@@ -186,6 +194,7 @@ eweb_os_t eweb_os = {
 	.write = eweb_write,
 	.accept = eweb_accept,
 	.exit = eweb_exit,
+	.sleep = eweb_sleep,
 
 	.log = eweb_log,
 	.init = eweb_init,

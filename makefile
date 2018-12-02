@@ -1,5 +1,5 @@
 CC=gcc
-CFLAGS=-Wall -Wextra -pedantic -O2 -std=c99
+CFLAGS=-Wall -Wextra -pedantic -O2 -std=c99 -Wmissing-prototypes
 LDFLAGS=-pthread
 OS=unix
 
