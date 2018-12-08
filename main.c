@@ -1,9 +1,8 @@
-/****************************************************************************
- ** Released under The MIT License (MIT). This code comes without warranty, **
- ** but if you use it you must provide attribution back to David's Blog     **
- ** at http://www.codehosting.net   See the LICENSE file for more details.  **
- ****************************************************************************/
-
+/**@file      eweb.c
+ * @license   MIT
+ * @copyright 2015-2016 http://www.codehosting.net
+ * @copyright 2018      Richard James Howe (Changes)
+ * @brief eweb driver, including a minimal API example */
 #include "eweb.h"
 #include <assert.h>
 #include <stdio.h>
@@ -11,7 +10,6 @@
 #include <string.h>
 #include <unistd.h>
 #include <errno.h>
-#include <pthread.h> // needed to run server on a new thread
 
 #define FILE_CHUNK_SIZE (1024)
 #define BIGGEST_FILE    (100l * 1024l * 1024l)
@@ -20,30 +18,28 @@ static const struct {
 	char *ext;
 	char *filetype;
 } extensions[] = {
-	{  "gif",    "image/gif" },
-	{  "jpg",    "image/jpeg" },
-	{  "jpeg",   "image/jpeg" },
-	{  "png",    "image/png" },
-	{  "ico",    "image/x-icon" },
-	{  "zip",    "application/zip" },
-	{  "gz",     "application/gzip" },
-	{  "tar",    "application/x-tar" },
-	{  "htm",    "text/html" },
-	{  "html",   "text/html" },
-	{  "js",     "text/javascript" },
-	{  "txt",    "text/plain" },
-	{  "css",    "text/css" },
-	{  "map",    "application/json" },
-	{  "woff",   "application/font-woff" },
-	{  "woff2",  "application/font-woff2" },
-	{  "ttf",    "application/font-sfnt" },
-	{  "svg",    "image/svg+xml" },
-	{  "eot",    "application/vnd.ms-fontobject" },
-	{  "mp4",    "video/mp4" },
-	{  NULL,     NULL }
+	{ "gif",   "image/gif" },
+	{ "jpg",   "image/jpeg" },
+	{ "jpeg",  "image/jpeg" },
+	{ "png",   "image/png" },
+	{ "ico",   "image/x-icon" },
+	{ "zip",   "application/zip" },
+	{ "gz",    "application/gzip" },
+	{ "tar",   "application/x-tar" },
+	{ "htm",   "text/html" },
+	{ "html",  "text/html" },
+	{ "js",    "text/javascript" },
+	{ "txt",   "text/plain" },
+	{ "css",   "text/css" },
+	{ "map",   "application/json" },
+	{ "woff",  "application/font-woff" },
+	{ "woff2", "application/font-woff2" },
+	{ "ttf",   "application/font-sfnt" },
+	{ "svg",   "image/svg+xml" },
+	{ "eot",   "application/vnd.ms-fontobject" },
+	{ "mp4",   "video/mp4" },
+	{ NULL,    NULL }
 };
-
-static pthread_t server_thread_id;
 
 static void log_filter(log_type type, char *s1, char *s2, int socket_fd) {
 	if (type != ERROR)
@@ -51,7 +47,7 @@ static void log_filter(log_type type, char *s1, char *s2, int socket_fd) {
 	printf("ERROR: %s: %s (errno=%d pid=%d socket=%d)\n", s1, s2, errno, getpid(), socket_fd);
 }
 
-// a simple API, it receives a number, increments it and returns the response
+/* a simple API, it receives a number, increments it and returns the response */
 static int send_api_response(eweb_os_t *w, struct hitArgs *args, char *path, char *request_body) {
 	assert(w);
 	UNUSED(request_body);
@@ -136,7 +132,6 @@ static int send_file_response(eweb_os_t *w, struct hitArgs *args, char *path, ch
 	return EWEB_OK;
 }
 
-
 static int send_response(eweb_os_t *w, struct hitArgs *args, char *path, char *request_body, http_verb type) {
 	assert(w);
 	UNUSED(type);
@@ -148,43 +143,14 @@ static int send_response(eweb_os_t *w, struct hitArgs *args, char *path, char *r
 	return send_file_response(w, args, path, request_body, path_length);
 }
 
-static void *server_thread(void *args) {
-	pthread_detach(pthread_self());
-	char *arg = (char *)args;
-	eweb_os_t w = eweb_os;
-	eweb_server(&w, atoi(arg), send_response, &log_filter);
-	return NULL;
-}
-
-static void close_down(void) {
-	eweb_server_kill(NULL);
-	pthread_cancel(server_thread_id);
-	puts("Bye bye");
-}
-
-static void wait_for_key(void) {
-	fgetc(stdin);
-	close_down();
-}
-
 int main(int argc, char **argv) {
 	eweb_os_t w = eweb_os;
 	if (argc < 2 || !strncmp(argv[1], "-h", 2)) {
 		printf("hint: dweb [port number]\n");
-		return 0;
+		return EXIT_FAILURE;
 	}
-	if (argc > 2 && !strncmp(argv[2], "-d", 2)) { /* don't read from the console or log anything */
-		return eweb_server(&w, atoi(argv[1]), send_response, NULL);
-	} else {
-		if (pthread_create (&server_thread_id, NULL, server_thread, argv[1]) != 0) {
-			puts("Error: pthread_create could not create server thread");
-			return 0;
-		}
-
-		puts("dweb server started\nPress a key to quit");
-		wait_for_key();
-	}
-	return 0;
+	printf("Hit CTRL-C to terminate\n");
+	return eweb_server(&w, atoi(argv[1]), send_response, log_filter) == EWEB_OK ?
+		EXIT_SUCCESS : EXIT_FAILURE;
 }
-
 

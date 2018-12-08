@@ -1,9 +1,17 @@
-/****************************************************************************
-** Released under The MIT License (MIT). This code comes without warranty, **
-** but if you use it you must provide attribution back to David's Blog     **
-** at http://www.codehosting.net   See the LICENSE file for more details.  **
-****************************************************************************/
+/**@file      eweb.c
+ * @license   MIT
+ * @copyright 2015-2016 http://www.codehosting.net
+ * @copyright 2018      Richard James Howe (Changes) 
+ * @brief     A small, portable, embeddable web-server, written in C. The
+ * code is heavily based on the 'dweb' web-server available at
+ * <http://www.codehosting.net>, specifically
+ * <https://codehosting.net/blog/BlogEngine/post/dweb-a-lightweight-portable-webserver-in-C>.
+ * It has been modified to abstract out the operating system specific code into
+ * a series of callbacks. It is available at <https://github.com/howerj/eweb>. */
 
+/**@todo remove dependence on errno */
+
+#include "eweb.h"
 #include <assert.h>
 #include <stdio.h>
 #include <ctype.h>
@@ -13,27 +21,12 @@
 #include <string.h>
 #include <signal.h>
 
-// set the correct mode here, options are:
-// SINGLE_THREADED, MULTI_PROCESS, OR MULTI_THREADED
-#define MODE MULTI_THREADED
 
-#if MODE == MULTI_THREADED
-#include <pthread.h>
-#endif
+#define MAX_INCOMING_REQUEST (4096) /**< maximum bytes to be read from request including headers */
+#define FORM_VALUE_BLOCK     (10)   /**< eweb_get_form_values() allocates memory in blocks of this size */
+#define READ_BUF_LEN         (255)  /**< eweb_webhit() will read data from socket in chunks of this size */
 
-#include "eweb.h"
-
-// this is the maximum amount of bytes that can be read from a request
-// it includes the headers
-#define MAX_INCOMING_REQUEST (4096)
-
-// get_form_values() will allocate memory in blocks of this size
-#define FORM_VALUE_BLOCK (10)
-
-// a global place to store the listening socket descriptor
-/**@todo remove these globals */
-int listenfd;
-volatile sig_atomic_t doing_shutdown = 0;
+static volatile sig_atomic_t doing_shutdown = 0;
 
 /* Taken from: <https://git.musl-libc.org/cgit/musl/tree/src/string/strtok_r.c> 
  * MIT LICENSED*/
@@ -51,7 +44,7 @@ static char *eweb_strtok(char *restrict s, const char *restrict sep, char **rest
 	return s;
 }
 
-// assumes a content type of "application/x-www-form-urlencoded" (the default type)
+/* assumes a content type of "application/x-www-form-urlencoded" (the default type) */
 static int eweb_get_form_values(eweb_os_t *w, struct hitArgs *args, char *body) {
 	assert(w);
 	assert(args);
@@ -60,8 +53,8 @@ static int eweb_get_form_values(eweb_os_t *w, struct hitArgs *args, char *body) 
 	char *saveptr = NULL;
 	char *token = eweb_strtok(body, "&", &saveptr);
 
-	args->form_values = mallocx(alloc * sizeof(FORM_VALUE));
-	memset(args->form_values, 0, alloc * sizeof(FORM_VALUE));
+	args->form_values = mallocx(alloc * sizeof(eweb_form_value_t));
+	memset(args->form_values, 0, alloc * sizeof(eweb_form_value_t));
 
 	while (token) {
 		char *tmp = mallocx(strlen(token) + 1);
@@ -77,8 +70,8 @@ static int eweb_get_form_values(eweb_os_t *w, struct hitArgs *args, char *body) 
 		if (i < tlen) {
 			if (alloc <= t) {
 				const long newsize = alloc + FORM_VALUE_BLOCK;
-				args->form_values = reallocx(args->form_values, newsize * sizeof(FORM_VALUE));
-				memset(args->form_values + alloc, 0, FORM_VALUE_BLOCK * sizeof(FORM_VALUE));
+				args->form_values = reallocx(args->form_values, newsize * sizeof(eweb_form_value_t));
+				memset(args->form_values + alloc, 0, FORM_VALUE_BLOCK * sizeof(eweb_form_value_t));
 				alloc = newsize;
 			}
 
@@ -118,17 +111,12 @@ static int eweb_finish_hit(eweb_os_t *w, struct hitArgs *args, int exit_code) {
 	if (args->content_type)
 		w->free(w, args->content_type);
 	w->free(w, args);
-
-#if MODE == MULTI_PROCESS
-	exit(exit_code);
-#elif MODE == MULTI_THREADED
-	pthread_exit(NULL);
-#endif
+	w->thread_exit(w, exit_code);
 	return EWEB_OK;
 }
 
-// writes the given headers and sets the Content-Length
-int eweb_write_header(eweb_os_t *w, int socket_fd, char *head, long content_len) {
+/* writes the given headers and sets the Content-Length */
+int eweb_write_header(eweb_os_t *w, const int socket_fd, const char *head, long content_len) {
 	assert(w);
 	assert(head);
 	string_t *header = new_string(255);
@@ -143,9 +131,13 @@ int eweb_write_header(eweb_os_t *w, int socket_fd, char *head, long content_len)
 	return EWEB_OK;
 }
 
-int eweb_write_html(eweb_os_t *w, int socket_fd, char *head, char *html) {
+int eweb_write_html(eweb_os_t *w, const int socket_fd, const char *head, const char *html) {
 	assert(w);
-	eweb_write_header(w, socket_fd, head, strlen(html));
+	assert(head);
+	assert(html);
+	const long r = eweb_write_header(w, socket_fd, head, strlen(html));
+	if (r != EWEB_OK)
+		return r;
 	w->write(w, socket_fd, html, strlen(html));
 	return EWEB_OK;
 }
@@ -154,7 +146,7 @@ int eweb_forbidden_403(eweb_os_t *w, struct hitArgs *args, char *info) {
 	assert(args);
 	assert(info);
 	const int r = eweb_write_html(w, args->socketfd,
-		"HTTP/1.1 403 Forbidden\nServer: dweb\nConnection: close\nContent-Type: text/html",
+		"HTTP/1.1 403 Forbidden\nServer: eweb\nConnection: close\nContent-Type: text/html",
 		"<html><head>\n<title>403 Forbidden</title>\n"
 		"</head><body>\n<h1>Forbidden</h1>\nThe requested URL, file type or operation is not allowed on this simple webserver.\n</body>"
 		"</html>");
@@ -166,7 +158,7 @@ int eweb_notfound_404(eweb_os_t *w, struct hitArgs *args, char *info) {
 	assert(args);
 	assert(info);
 	const int r = eweb_write_html(w, args->socketfd,
-		"HTTP/1.1 404 Not Found\nServer: dweb\nConnection: close\nContent-Type: text/html",
+		"HTTP/1.1 404 Not Found\nServer: eweb\nConnection: close\nContent-Type: text/html",
 		"<html><head>\n<title>404 Not Found</title>\n"
 		"</head><body>\n<h1>Not Found</h1>\nThe requested URL was not found on this server.\n</body></html>");
 	args->logger_function(LOG, "404 NOT FOUND", info, args->socketfd);
@@ -176,7 +168,7 @@ int eweb_notfound_404(eweb_os_t *w, struct hitArgs *args, char *info) {
 int eweb_ok_200(eweb_os_t *w, struct hitArgs *args, char *custom_headers, char *html, char *path) {
 	assert(w);
 	string_t *headers = new_string(255);
-	string_add(headers, "HTTP/1.1 200 OK\nServer: dweb\nCache-Control: no-cache\nPragma: no-cache");
+	string_add(headers, "HTTP/1.1 200 OK\nServer: eweb\nCache-Control: no-cache\nPragma: no-cache");
 	if (!custom_headers)
 		string_add(headers, custom_headers);
 	eweb_write_html(w, args->socketfd, string_chars(headers), html);
@@ -187,6 +179,8 @@ int eweb_ok_200(eweb_os_t *w, struct hitArgs *args, char *custom_headers, char *
 }
 
 static void eweb_default_logger(log_type type, char *title, char *description, int socket_fd) {
+	assert(title);
+	assert(description);
 	switch (type) {
 	case ERROR: printf("ERROR: %s: %s (errno=%d pid=%d socket=%d)\n", title, description, errno, getpid(), socket_fd); break;
 	default:    printf("INFO: %s: %s (pid=%d socket=%d)\n", title, description, getpid(), socket_fd); break;
@@ -194,17 +188,18 @@ static void eweb_default_logger(log_type type, char *title, char *description, i
 	fflush(stdout);
 }
 
-struct http_header eweb_get_header(const char *name, char *request, int max_len) {
+eweb_http_header_t eweb_get_header(const char *name, char *request, int max_len) {
 	assert(name);
 	assert(request);
-	struct http_header retval;
+	eweb_http_header_t retval;
+	memset(&retval, 0, sizeof retval);
 	size_t x = 0;
 	char *ptr = strstr(request, name);
 	char *end = ptr + max_len;
 	strncpy(retval.name, name, sizeof(retval.name) - 1);
 	retval.name[sizeof(retval.name) - 1] = 0;
 
-	if (ptr == NULL) {
+	if (!ptr) {
 		retval.value[0] = 0;
 		return retval;
 	}
@@ -217,24 +212,25 @@ struct http_header eweb_get_header(const char *name, char *request, int max_len)
 	return retval;
 }
 
-static long eweb_get_body_start(char *request) {
-	/* return the starting index of the request body, or end of the HTTP headers */
-	char *ptr = strstr(request, "\r\n\r\n");
-	return (ptr == NULL) ? -1 : (ptr + 4) - request;
+static long eweb_get_body_start(char *request) { /* return the starting index of the request body, or end of the HTTP headers */
+	assert(request);
+	const char *ptr = strstr(request, "\r\n\r\n");
+	return !ptr ? -1 : (ptr + 4) - request;
 }
 
 static http_verb eweb_request_type(char *request) {
+	assert(request);
 	if (strncmp(request, "GET ", 4) == 0 || strncmp(request, "get ", 4) == 0)
-		return HTTP_GET;
+		return EWEB_RT_HTTP_GET_E;
 	if (strncmp(request, "POST ", 5) == 0 || strncmp(request, "post ", 5) == 0)
-		return HTTP_POST;
-	return HTTP_NOT_SUPPORTED;
+		return EWEB_RT_HTTP_POST_E;
+	return EWEB_RT_HTTP_NOT_SUPPORTED_E;
 }
 
-// webhit() will read data from the socket in chunks of this size
-#define READ_BUF_LEN (255)
-
 int eweb_webhit(eweb_os_t *w, struct hitArgs *args) {
+	assert(w);
+	assert(args);
+
 	long i = 0, body_size = 0, request_size = 0;
 	char buf[READ_BUF_LEN + 1] = { 0 };
 	args->buffer = new_string(READ_BUF_LEN);
@@ -253,7 +249,7 @@ int eweb_webhit(eweb_os_t *w, struct hitArgs *args) {
 		return EWEB_OK;
 	}
 
-	struct http_header content_length = eweb_get_header("Content-Length", string_chars(args->buffer), args->buffer->used_bytes);
+	eweb_http_header_t content_length = eweb_get_header("Content-Length", string_chars(args->buffer), args->buffer->used_bytes);
 	args->content_length = atoi(content_length.value);
 	const long body_start = eweb_get_body_start(string_chars(args->buffer));
 	const long headers_end = body_start - 4;
@@ -271,8 +267,7 @@ int eweb_webhit(eweb_os_t *w, struct hitArgs *args) {
 		body_size = request_size - body_start;
 
 	/* safari seems to send the headers, and then the body slightly later */
-	while (body_size < args->content_length
-	       && args->buffer->used_bytes <= MAX_INCOMING_REQUEST) {
+	while (body_size < args->content_length && args->buffer->used_bytes <= MAX_INCOMING_REQUEST) {
 		memset(buf, 0, READ_BUF_LEN + 1);
 		i = w->read(w, args->socketfd, buf, READ_BUF_LEN);
 		if (i > 0) {
@@ -294,24 +289,24 @@ int eweb_webhit(eweb_os_t *w, struct hitArgs *args) {
 	args->logger_function(LOG, "request", string_chars(args->buffer), args->hit);
 
 	const http_verb type = eweb_request_type(string_chars(args->buffer));
-	if (type == HTTP_NOT_SUPPORTED) {
+	if (type == EWEB_RT_HTTP_NOT_SUPPORTED_E) {
 		eweb_forbidden_403(w, args, "Only simple GET and POST operations are supported");
 		eweb_finish_hit(w, args, 3);
 		return EWEB_OK;
 	}
-	// get a pointer to the request body (or NULL if it's not there)
-	char *body = (type == HTTP_GET) ? NULL : (char*)args->buffer->ptr + eweb_get_body_start(string_chars(args->buffer));
+	/* get a pointer to the request body (or NULL if it's not there) */
+	char *body = (type == EWEB_RT_HTTP_GET_E) ? NULL : (char*)args->buffer->ptr + eweb_get_body_start(string_chars(args->buffer));
 
-	// the request will be "GET [URL] " or "POST [URL] " followed by other details
-	// we will terminate after the second space, to ignore everything else
-	for (i = (type == HTTP_GET) ? 4 : 5; i < args->buffer->used_bytes; i++) {
+	/* the request will be "GET [URL] " or "POST [URL] " followed by other details
+	we will terminate after the second space, to ignore everything else */
+	for (i = (type == EWEB_RT_HTTP_GET_E) ? 4 : 5; i < args->buffer->used_bytes; i++) {
 		if (string_chars(args->buffer)[i] == ' ') {
-			string_chars(args->buffer)[i] = 0;	// second space, terminate string here
+			string_chars(args->buffer)[i] = 0;	/* second space, terminate string here */
 			break;
 		}
 	}
 
-	long j = (type == HTTP_GET) ? 4 : 5;
+	long j = (type == EWEB_RT_HTTP_GET_E) ? 4 : 5;
 
 	/* check for an absolute directory */
 	if (string_chars(args->buffer)[j + 1] == '/') {
@@ -329,7 +324,7 @@ int eweb_webhit(eweb_os_t *w, struct hitArgs *args) {
 		}
 	}
 
-	struct http_header ctype = eweb_get_header("Content-Type", args->headers, strlen(args->headers));
+	eweb_http_header_t ctype = eweb_get_header("Content-Type", args->headers, strlen(args->headers));
 	j = strlen(ctype.value);
 	if (j > 0) {
 		args->content_type = mallocx(j + 1);
@@ -341,61 +336,38 @@ int eweb_webhit(eweb_os_t *w, struct hitArgs *args) {
 		args->content_type[0] = 0;
 	}
 
-	// call the "responder function" which has been provided to do the rest
-	args->responder_function(w, args, string_chars(args->buffer) + ((type == HTTP_GET) ? 5 : 6), body, type);
+	/* call the "responder function" which has been provided to do the rest */
+	args->responder_function(w, args, string_chars(args->buffer) + ((type == EWEB_RT_HTTP_GET_E) ? 5 : 6), body, type);
 	eweb_finish_hit(w, args, 1);
 	return EWEB_OK;
 }
 
-#if MODE == MULTI_THREADED
-static void *eweb_threadMain(void *targs) {
-	struct hitArgs *args = (struct hitArgs *)targs;
-	pthread_detach(pthread_self());
-	eweb_webhit(args->w, args);
-	return NULL;
-}
-#endif
-
-static void eweb_inthandler(int sig) {
-	if (doing_shutdown == 1)
-		return;
-
-	doing_shutdown = 1;
-	puts("\nwebserver shutting down");
-	close(listenfd);
-	if (sig != SIGUSR1) {
-		exit(0);
-	}
-}
-
 int eweb_server_kill(eweb_os_t *w) {
-	//assert(w);
-	UNUSED(w);
-	eweb_inthandler(SIGUSR1);
-	return EWEB_OK;
+	assert(w);
+	return w->kill(w);
 }
 
 int eweb_server(eweb_os_t *w, int port, responder_cb_t responder_func, logger_cb_t logger_func) {
+	assert(w);
 
-	if (port <= 0 || port > 60000) {
-		logger_func(ERROR, "Invalid port number (try 1 - 60000)", "", 0);
-		exit(3);
-	}
-
+	w->log(w, LOG, "eweb server initialized");
 	if (w->init(w) < 0) {
+		w->log(w, ERROR, "initialization failed");
 		return EWEB_ERROR;
 	}
 
-	if ((listenfd = w->open(w, port)) < 0) {
-		logger_func(ERROR, "system call", "socket", 0);
+	const int listenfd = w->open(w, port);
+	if (listenfd < 0) {
+		w->log(w, ERROR, "open failed: %s", strerror(errno));
 		return EWEB_ERROR;
 	}
 
 	for (int hit = 1;; hit++) {
+		errno = 0;
 		const int socketfd = w->accept(w, listenfd);
-		if (socketfd  < 0) {
-			if (doing_shutdown == 0 && logger_func != NULL)
-				logger_func(ERROR, "system call", "accept", 0);
+		if (socketfd < 0) {
+			/*if (!doing_shutdown) */
+			w->log(w, ERROR, "accept failed: %s", strerror(errno));
 			continue;
 		}
 
@@ -404,39 +376,21 @@ int eweb_server(eweb_os_t *w, int port, responder_cb_t responder_func, logger_cb
 		args->logger_function = logger_func != NULL ? logger_func : &eweb_default_logger;
 		args->hit = hit;
 		args->socketfd = socketfd;
+		args->listenfd = listenfd;
 		args->responder_function = responder_func;
 		args->w = w;
 
-#if MODE == SINGLE_THREADED
-		webhit(args);
-#elif MODE == MULTI_PROCESS
-		const int pid = fork();
-		if (pid < 0) {
-			logger_func(ERROR, "system call", "fork", 0);
-			return 0;
-		} else {
-			if (pid == 0) {
-				// child
-				close(listenfd);
-				webhit(args);	// never returns
-			} else {
-				close(socketfd);
-			}
-		}
-#elif MODE == MULTI_THREADED
-		pthread_t threadId;
-		if (pthread_create(&threadId, NULL, eweb_threadMain, args) != 0) {
-			if (logger_func)
-				logger_func(ERROR, "system call", "pthread_create", 0);
+		const long rval = w->thread_new(w, args);
+		if (rval != EWEB_OK) {
+			w->log(w, ERROR, "thread new failed");
 			continue;
 		}
-#endif
 	}
 	return EWEB_OK;
 }
 
-// The same algorithm as found here:
-// http://spskhokhar.blogspot.co.uk/2012/09/url-decode-http-query-string.html
+/* The same algorithm as found here:
+ <http://spskhokhar.blogspot.co.uk/2012/09/url-decode-http-query-string.html> */
 void eweb_url_decode(char *s) {
 	assert(s);
 	const size_t len = strlen(s);
@@ -478,7 +432,7 @@ char *eweb_form_name(struct hitArgs *args, const long i) {
 }
 
 int eweb_string_matches_value(const char *str, const char *value) {
-	if (str == NULL || value == NULL)
+	if (!str || !value)
 		return 0;
 	return strncmp(str, value, strlen(value)) == 0;
 }
@@ -505,7 +459,7 @@ void *realloc_or_quit(void *ptr, size_t num_bytes, const char *src_file, int src
 	}
 }
 
-void *calloc_or_quit(size_t num, size_t size, const char *src_file, int src_line) {
+void *calloc_or_quit(const size_t num, const size_t size, const char *src_file, int src_line) {
 	void *mem;
 	if ((mem = calloc(num, size)) == NULL) {
 		fprintf(stderr, "file: '%s' at line: %d failed to calloc [%zu x %zu] bytes", src_file, src_line, num, size);
@@ -515,7 +469,7 @@ void *calloc_or_quit(size_t num, size_t size, const char *src_file, int src_line
 	}
 }
 
-static inline void bcreate(block_t * b, const long elem_size, const long inc) {
+static inline void bcreate(block_t *b, const long elem_size, const long inc) {
 	assert(b);
 	b->elem_bytes = elem_size;
 	b->chunk_size = inc;
@@ -524,10 +478,10 @@ static inline void bcreate(block_t * b, const long elem_size, const long inc) {
 	b->used_bytes = 0;
 }
 
-static void badd(block_t * b, const void *data, int len) {
+static void badd(block_t *b, const void *data, long len) {
 	assert(b);
 	assert(data);
-	if (b->alloc_bytes - b->used_bytes < len) {
+	if ((b->alloc_bytes - b->used_bytes) < len) {
 		while (b->alloc_bytes - b->used_bytes < len)
 			b->alloc_bytes += (b->chunk_size * b->elem_bytes);
 		b->ptr = reallocx(b->ptr, b->alloc_bytes);
@@ -537,7 +491,7 @@ static void badd(block_t * b, const void *data, int len) {
 	memset((char*)b->ptr + b->used_bytes, 0, b->alloc_bytes - b->used_bytes);
 }
 
-static void bfree(block_t * b) {
+static void bfree(block_t *b) {
 	assert(b);
 	free(b->ptr);
 	b->used_bytes = 0;

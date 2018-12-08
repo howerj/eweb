@@ -18,10 +18,11 @@ int main(int argc, char **argv) {
 	eweb_os_t w = eweb_os;
 
 	if (argc != 2 || !strcmp(argv[1], "-?")) {
-		printf("hint: simple [port number]\n");
-		exit(0);
+		printf("hint: %s [port number]\n", argv[0]);
+		return EXIT_FAILURE;
 	}
-	eweb_server(&w, atoi(argv[1]), simple_response, NULL);
-	return 0;
+	return eweb_server(&w, atoi(argv[1]), simple_response, NULL) == EWEB_OK ?
+		EXIT_SUCCESS :
+		EXIT_FAILURE ;
 }
 

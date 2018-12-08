@@ -11,12 +11,13 @@ This project is a work in progress.
 
 * [ ] Cleanup project
   * [ ] API changes (callbacks, error codes)
-  * [ ] Change logo
-  * [ ] Change project references
+  * [x] Change logo
+  * [x] Change favicon
+  * [x] Change project references
 * [x] Remove gnu99 features
 * [ ] Separate out operating system dependencies
-  * [ ] Create callback mechanism
-  * [ ] Make a Unix file, containing
+  * [x] Create callback mechanism
+  * [x] Make a Unix file, containing operating system specific components
   * [ ] Port to Windows
 * [ ] Lint the code
 * [ ] Make a version that communicates via standard in/standard out to
@@ -35,6 +36,7 @@ This project is a work in progress.
 * [ ] Add manual page
 * [ ] Add basic authentication
 * [ ] Add optional HTTPS support
+* [ ] Turn into a library
 * [ ] Make the web server robust in the face of an Out Of Memory condition,
   it should release any memory and indicate failure.
 
@@ -107,24 +109,5 @@ to have requests bigger than this you will need to increase that value.
 
 ## License
 
-The MIT License (MIT)
+See <https:github.com/howerj/eweb/LICENSE>.
 
-Copyright (c) 2014-15 David's Blog - www.codehosting.net
-
-Permission is hereby granted, free of charge, to any person obtaining a
-copy of this software and associated documentation files (the "Software"),
-to deal in the Software without restriction, including without limitation
-the rights to use, copy, modify, merge, publish, distribute, sublicense,
-and/or sell copies of the Software, and to permit persons to whom the
-Software is furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included
-in all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL
-THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR
-OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,
-ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR
-OTHER DEALINGS IN THE SOFTWARE.
