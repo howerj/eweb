@@ -1,4 +1,8 @@
 *.a
+*.txt
+*.log
+*.exe
+*~
 *.o
 eweb
 simple

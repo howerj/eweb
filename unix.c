@@ -21,12 +21,9 @@
 #include <sys/time.h>
 #include <unistd.h>
 
-/* set the correct mode here, options are: SINGLE_THREADED, MULTI_PROCESS, OR MULTI_THREADED */
-#define MODE MULTI_THREADED
-
-// a global place to store the listening socket descriptor
 /**@todo remove these globals */
-static int listenfd;
+/* a global place to store the listening socket descriptor*/
+static int listenfd; // @warning Not set!
 static volatile sig_atomic_t doing_shutdown = 0;
 
 static long eweb_init(eweb_os_t *w) {
@@ -39,24 +36,6 @@ static long eweb_init(eweb_os_t *w) {
 	signal(SIGHUP,  SIG_IGN); /* ignore terminal hangups */
 	signal(SIGPIPE, SIG_IGN); /* ignore broken pipes */
 	return 0;
-}
-
-static void eweb_free(eweb_os_t *w, void *p) {
-	assert(w);
-	UNUSED(w);
-	free(p);
-}
-
-static void *eweb_malloc(eweb_os_t *w, size_t sz) {
-	assert(w);
-	UNUSED(w);
-	return mallocx(sz);
-}
-
-static void *eweb_realloc(eweb_os_t *w, void *ptr, size_t sz) {
-	assert(w);
-	UNUSED(w);
-	return reallocx(ptr, sz);
 }
 
 static void eweb_log(eweb_os_t *w, int error, const char *fmt, ...) {
@@ -74,7 +53,7 @@ static void inthandler(int sig) {
 	if (doing_shutdown == 1)
 		return;
 	doing_shutdown = 1;
-	fputs("web-server shutting down\n", stderr);
+	fputs("web-server shutting down\n", stderr); // !!
 	close(listenfd);
 	if (sig != SIGUSR1)
 		exit(0);
@@ -105,17 +84,19 @@ static long eweb_open(eweb_os_t *w, unsigned port) {
 	/* For Linux support, MSG_NOSIGNAL is used: See <http://stackoverflow.com/questions/108183/> */
 	int y = 1;
 #ifdef SO_NOSIGPIPE
+	errno = 0;
 	/* use SO_NOSIGPIPE, to ignore any SIGPIPEs */
 	if (setsockopt(listenfd, SOL_SOCKET, SO_NOSIGPIPE, &y, sizeof(y)) < 0) {
-		w->log(w, ERROR, "setsocketopt failed: %s", strerror(errno));
+		w->log(w, ERROR, "setsocketopt(SO_NOSIGPIPE) failed: %s", strerror(errno));
 		return -1;
 	}
 	y = 1;
 #endif
 
-	// use SO_REUSEADDR, so we can restart the server without waiting
+	errno = 0;
+	/* use SO_REUSEADDR, so we can restart the server without waiting */
 	if (setsockopt(listenfd, SOL_SOCKET, SO_REUSEADDR, &y, sizeof(y)) < 0) {
-		//logger_func(ERROR, "system call", "setsockopt -> SO_REUSEADDR", 0);
+		w->log(w, ERROR, "setsockopt(SO_REUSEADDR) failed: %s", strerror(errno));
 		return -1;
 	}
 	/* as soon as listenfd is set, keep a handler so we can close it on exit */
@@ -157,7 +138,7 @@ static long eweb_accept(eweb_os_t *w, int listenfd) {
 	struct timeval timeout = { .tv_sec = 60, .tv_usec = 0 };
 	errno = 0;
 	if (setsockopt(socketfd, SOL_SOCKET, SO_RCVTIMEO, (char *)&timeout, sizeof(struct timeval)) < 0) {
-		w->log(w, ERROR, "setsocketopt SO_RCVTIMEO failed: %s", strerror(errno));
+		w->log(w, ERROR, "setsocketopt(SO_RCVTIMEO) failed: %s", strerror(errno));
 		w->close(w, socketfd);
 		return -1;
 	}
@@ -210,9 +191,9 @@ static long eweb_sleep(eweb_os_t *w, unsigned seconds) {
 static long eweb_thread_exit(eweb_os_t *w, int exit_code) {
 	assert(w);
 	UNUSED(w);
-	if (MODE == MULTI_PROCESS) {
+	if (w->threading_mode == EWEB_TM_MULTI_PROCESS_E) {
 		w->exit(w, exit_code);
-	} else if (MODE == MULTI_THREADED) {
+	} else if (w->threading_mode == EWEB_TM_MULTI_THREADS_E) {
 		UNUSED(exit_code);
 		pthread_exit(NULL);
 	} else {
@@ -222,18 +203,18 @@ static long eweb_thread_exit(eweb_os_t *w, int exit_code) {
 }
 
 static void *eweb_thread_main(void *targs) {
-	struct hitArgs *args = (struct hitArgs *)targs;
+	struct eweb_os_hit_args *args = (struct eweb_os_hit_args *)targs;
 	pthread_detach(pthread_self());
-	eweb_webhit(args->w, args);
+	eweb_hit(args->w, args);
 	return NULL;
 }
 
-static long eweb_thread_new(eweb_os_t *w, struct hitArgs *args) {
+static long eweb_thread_new(eweb_os_t *w, struct eweb_os_hit_args *args) {
 	assert(w);
 	assert(args);
-	if (MODE == SINGLE_THREADED) {
-		return eweb_webhit(w, args);
-	} else if (MODE == MULTI_PROCESS) {
+	if (w->threading_mode == EWEB_TM_SINGLE_THREAD_E) { /**@todo allow configurable mode selection */
+		return eweb_hit(w, args);
+	} else if (w->threading_mode == EWEB_TM_MULTI_PROCESS_E) {
 		errno = 0;
 		const int pid = fork();
 		if (pid < 0) {
@@ -242,29 +223,97 @@ static long eweb_thread_new(eweb_os_t *w, struct hitArgs *args) {
 		} else {
 			if (pid == 0) { /* child */
 				close(args->listenfd);
-				eweb_webhit(w, args); /* never returns */
+				eweb_hit(w, args); /* never returns */
 			} else {
 				close(args->socketfd);
 			}
 		}
-	} else if (MODE == MULTI_THREADED) {
+	} else if (w->threading_mode == EWEB_TM_MULTI_THREADS_E) {
 		pthread_t thread_id; /** ??? */
 		if (pthread_create(&thread_id, NULL, eweb_thread_main, args) != 0) {
 			eweb_log(w, ERROR, "failed to create thread");
 			return EWEB_ERROR;
 		}
 	} else {
-		eweb_log(w, ERROR, "invalid threading MODE: %d", MODE);
+		eweb_log(w, ERROR, "invalid threading MODE: %u", w->threading_mode);
 		abort();
 	}
 	return EWEB_OK;
 }
 
-eweb_os_t eweb_os = {
-	.arena       = NULL,
-	.free        = eweb_free,
-	.malloc      = eweb_malloc,
-	.realloc     = eweb_realloc,
+void *mallocx(eweb_os_t *w, size_t num_bytes) {
+	assert(w);
+	assert(!(w->allocation_error));
+	void *mem = w->allocator.malloc(w->allocator.arena, num_bytes);
+	if (!mem) {
+		w->allocation_error = 1;
+		w->log(w, ERROR, "malloc of %zu bytes failed", num_bytes);
+		exit(EXIT_FAILURE);
+	} 
+	return mem;
+}
+
+void *reallocx(eweb_os_t *w, void *ptr, size_t num_bytes) {
+	assert(w);
+	assert(!(w->allocation_error));
+	void *mem = w->allocator.realloc(w->allocator.arena, ptr, num_bytes);
+	if (!mem) {
+		w->allocation_error = 1;
+		w->log(w, ERROR, "realloc of %zu bytes failed", num_bytes);
+		exit(EXIT_FAILURE);
+	} 
+	return mem;
+}
+
+void *callocx(eweb_os_t *w, const size_t num, const size_t size) {
+	assert(w);
+	assert(!(w->allocation_error));
+	void *mem = w->allocator.malloc(w->allocator.arena, num * size); /**@todo check for overflow! */
+	if (!mem) {
+		w->allocation_error = 1;
+		w->log(w, ERROR, "calloc failed [%zu x %zu] bytes", num, size);
+		exit(EXIT_FAILURE);
+	} 
+	memset(mem, 0, num * size); 
+	return mem;
+}
+
+void freex(eweb_os_t *w, void *ptr) {
+	assert(w);
+	if (!ptr)
+		return;
+	w->allocator.free(w->allocator.arena, ptr);
+}
+
+static void eweb_free(void *arena, void *p) {
+	UNUSED(arena);
+	free(p);
+}
+
+static void *eweb_malloc(void *arena, size_t sz) {
+	UNUSED(arena);
+	return malloc(sz);
+}
+
+static void *eweb_realloc(void *arena, void *ptr, size_t sz) {
+	UNUSED(arena);
+	return realloc(ptr, sz);
+}
+
+static const eweb_allocator_t eweb_os_default_allocator = {
+	.malloc  = eweb_malloc,
+	.free    = eweb_free,
+	.realloc = eweb_realloc,
+	.arena = NULL,
+};
+
+const eweb_os_t eweb_os = {
+	.allocator   = {
+		.malloc  = eweb_malloc,
+		.free    = eweb_free,
+		.realloc = eweb_realloc,
+		.arena = NULL, 
+	},
 	.open        = eweb_open,
 	.close       = eweb_close,
 	.read        = eweb_read,
@@ -278,14 +327,35 @@ eweb_os_t eweb_os = {
 	.log         = eweb_log,
 	.init        = eweb_init,
 	.deinit      = eweb_deint,
+	.threading_mode = EWEB_TM_SINGLE_THREAD_E,
 };
 
-
-eweb_os_t *eweb_os_new(void) {
-	return NULL;
+eweb_os_t *eweb_os_new(eweb_allocator_t *allocator, eweb_threading_mode_e mode) {
+	eweb_os_t *w = NULL;
+	const eweb_allocator_t *a = allocator ? allocator : &eweb_os_default_allocator;
+	w = a->malloc(a->arena, sizeof(*w));
+	if (!w)
+		return w;
+	memset(w, 0, sizeof(*w));
+	*w = eweb_os;
+	w->file = stderr;
+	w->allocator = *a;
+	switch (mode) {
+	case EWEB_TM_SINGLE_THREAD_E: break;
+	case EWEB_TM_MULTI_PROCESS_E: break;
+	default: /* fall through */
+	case EWEB_TM_MULTI_THREADS_E:
+		mode = EWEB_TM_MULTI_THREADS_E;
+		break;
+	}
+	w->threading_mode = mode;
+	return w;
 }
 
 void eweb_os_delete(eweb_os_t *w) {
-	UNUSED(w);
+	if (!w)
+		return;
+	eweb_allocator_t allocator = w->allocator;
+	allocator.free(allocator.arena, w);
 }
 

@@ -1,17 +1,25 @@
-/****************************************************************************
- ** Released under The MIT License (MIT). This code comes without warranty, **
- ** but if you use it you must provide attribution back to David's Blog     **
- ** at http://www.codehosting.net   See the LICENSE file for more details.  **
- ****************************************************************************/
+/**@file      eweb.h
+ * @license   MIT
+ * @copyright 2015-2016 http://www.codehosting.net
+ * @copyright 2018      Richard James Howe (Changes) 
+ * @brief     A small, portable, embeddable web-server, written in C. The
+ * code is heavily based on the 'dweb' web-server available at
+ * <http://www.codehosting.net>, specifically
+ * <https://codehosting.net/blog/BlogEngine/post/dweb-a-lightweight-portable-webserver-in-C>.
+ * It has been modified to abstract out the operating system specific code into
+ * a series of callbacks. It is available at <https://github.com/howerj/eweb>. */
 
-#ifndef DWEBSVR_H
-#define DWEBSVR_H
+#ifndef EWEB_H
+#define EWEB_H
 
 #include <stddef.h>
 
-#define SINGLE_THREADED (1)
-#define MULTI_PROCESS   (2)
-#define MULTI_THREADED  (3)
+typedef enum {
+	/* auto select = 0 */
+	EWEB_TM_SINGLE_THREAD_E = 1,
+	EWEB_TM_MULTI_PROCESS_E = 2,
+	EWEB_TM_MULTI_THREADS_E = 3,
+} eweb_threading_mode_e;
 
 #define ERROR    (42)
 #define LOG      (43)
@@ -30,61 +38,57 @@ typedef struct {
 	char value[255];
 } eweb_http_header_t;
 
+struct eweb_os_hit_args;
 struct eweb_os;
-struct hitArgs;
 typedef struct eweb_os eweb_os_t;
 
 typedef struct {
-	void *(*malloc)  (eweb_os_t *w, size_t bytes);            /* malloc equivalent */
-	void *(*realloc) (eweb_os_t *w, void *ptr, size_t bytes); /* realloc equivalent */
-	void  (*free)    (eweb_os_t *w, void *ptr);               /* free equivalent */
+	void *(*malloc)  (void *w, size_t bytes);            /* malloc equivalent */
+	void *(*realloc) (void *w, void *ptr, size_t bytes); /* realloc equivalent */
+	void  (*free)    (void *w, void *ptr);               /* free equivalent */
 	void *arena;
 } eweb_allocator_t; /**@todo integrate this */
 
 struct eweb_os {
-	void *(*malloc)  (eweb_os_t *w, size_t bytes);            /* malloc equivalent */
-	void *(*realloc) (eweb_os_t *w, void *ptr, size_t bytes); /* realloc equivalent */
-	void  (*free)    (eweb_os_t *w, void *ptr);               /* free equivalent */
+	eweb_allocator_t allocator;
 
-	long (*write)(eweb_os_t *w, int fd, const void *buf, size_t count);
-	long (*read)(eweb_os_t *w,  int fd, void *buf, size_t count);
-	long (*close)(eweb_os_t *w, int fd);
+	long (*open)(eweb_os_t *w, unsigned port);  /* open a server socket, bind, set socketopts, -1 on failure */
+	long (*accept)(eweb_os_t *w, int listenfd); /* listen and accept a client socket, -1 on failure */
+	long (*write)(eweb_os_t *w, int fd, const void *buf, size_t count); /* write to socket */
+	long (*read)(eweb_os_t *w,  int fd, void *buf, size_t count);       /* read from socket */
+	long (*close)(eweb_os_t *w, int fd);                                /* close socket */
 
-	long (*open)(eweb_os_t *w, unsigned port);
-	long (*accept)(eweb_os_t *w, int listenfd);
+	long (*sleep)(eweb_os_t *w, unsigned seconds); /* sleep for X seconds */
 
-	long (*sleep)(eweb_os_t *w, unsigned seconds);
+	void (*log)(eweb_os_t *w, int error, const char *fmt, ...); /* log an error message */
+	void (*exit)(eweb_os_t *w, int code); /* exit process */
 
-	void (*log)(eweb_os_t *w, int error, const char *fmt, ...);
-	void (*exit)(eweb_os_t *w, int code);
+	long (*init)(eweb_os_t *w);   /* initialize web server */
+	long (*deinit)(eweb_os_t *w); /* deinitialize web server */
 
-	long (*init)(eweb_os_t *w);
-	long (*deinit)(eweb_os_t *w);
+	long (*thread_new)(eweb_os_t *w, struct eweb_os_hit_args *args); /* create new service thread/process */
+	long (*thread_exit)(eweb_os_t *w, int code); /* exit service thread/process */
 
-	long (*thread_new)(eweb_os_t *w, struct hitArgs *args);
-	long (*thread_exit)(eweb_os_t *w, int code);
+	long (*kill)(eweb_os_t *w); /* kill web server */
 
-	long (*kill)(eweb_os_t *w);
-
-	void *arena;  /* arena we are allocating in, if any */
-	void *file;   /* logger output */
+	void *file;   /* logger output handle */
 	void *tag;    /* user tag */
+
+	/**@todo hide these better */
+	unsigned allocation_error :1; /**< INTERNAL USE ONLY! Has there been an allocation error? */
+	unsigned threading_mode   :2; /**< INTERNAL USE ONLY! Threading mode to use */
 };
 
-eweb_os_t *eweb_os_new(void);
+eweb_os_t *eweb_os_new(eweb_allocator_t *a, eweb_threading_mode_e mode);
 void eweb_os_delete(eweb_os_t *w);
 
-extern eweb_os_t eweb_os;
 
 /* ---------- Memory allocation helpers ---------- */
 
-void *malloc_or_quit(size_t num_bytes, const char *src_file, int src_line);
-void *realloc_or_quit(void *ptr, size_t num_bytes, const char *src_file, int src_line);
-void *calloc_or_quit(size_t num, size_t size, const char *src_file, int src_line);
-
-#define mallocx(num_bytes) malloc_or_quit((num_bytes), __FILE__, __LINE__)
-#define reallocx(ptr, num_bytes) realloc_or_quit((ptr), (num_bytes), __FILE__, __LINE__)
-#define callocx(num, size) calloc_or_quit((num), (size), __FILE__, __LINE__)
+void *mallocx(eweb_os_t *w, size_t num_bytes);
+void *reallocx(eweb_os_t *w, void *ptr, size_t num_bytes);
+void *callocx(eweb_os_t *w, size_t num, size_t size);
+void freex(eweb_os_t *w, void *ptr);
 
 typedef struct {
 	void *ptr;        /**< pointer to the data */
@@ -96,10 +100,11 @@ typedef struct {
 
 typedef block_t string_t;
 
-string_t *new_string(long increments);
-void string_add(string_t * s, const char *char_array);
-char *string_chars(string_t * s);
-void string_free(string_t * s);
+/**@todo these should use eweb_allocator_t */
+string_t *new_string(eweb_os_t *w, long increments);
+string_t *string_add(eweb_os_t *w, string_t * s, const char *char_array);
+char *string_chars(eweb_os_t *w, string_t * s);
+void string_free(eweb_os_t *w, string_t * s);
 
 /* ---------- End of memory allocation helper stuff ---------- */
 
@@ -108,12 +113,10 @@ typedef struct {
 	char *data;
 } eweb_form_value_t;
 
-typedef int (*responder_cb_t) (eweb_os_t *w, struct hitArgs * args, char *, char *, http_verb);
-typedef void (*logger_cb_t) (log_type, char *, char *, int);
+typedef int (*responder_cb_t) (eweb_os_t *w, struct eweb_os_hit_args * args, char *, char *, http_verb);
 
-struct hitArgs {
+struct eweb_os_hit_args {
 	responder_cb_t responder_function;
-	logger_cb_t logger_function;
 	string_t *buffer;
 	char *headers;
 	char *content_type;
@@ -127,23 +130,26 @@ struct hitArgs {
 
 enum { EWEB_OK, EWEB_ERROR };
 
-int eweb_server(eweb_os_t *w, int port, responder_cb_t responder_func, logger_cb_t logger_func);
+int eweb_server(eweb_os_t *w, int port, responder_cb_t responder_func);
 int eweb_server_kill(eweb_os_t *w);
 int eweb_write_header(eweb_os_t *w, int socket_fd, const char *head, long content_len);
 int eweb_write_html(eweb_os_t *w, int socket_fd, const char *head, const char *html);
-int eweb_forbidden_403(eweb_os_t *w, struct hitArgs *args, char *info);
-int eweb_notfound_404(eweb_os_t *w, struct hitArgs *args, char *info);
-int eweb_ok_200(eweb_os_t *w, struct hitArgs *args, char *custom_headers, char *html, char *path);
-int eweb_logger(eweb_os_t *w, log_type type, char *s1, char *s2, int socket_fd);
-int eweb_webhit(eweb_os_t *w, struct hitArgs *args);
+int eweb_forbidden_403(eweb_os_t *w, struct eweb_os_hit_args *args, const char *info);
+int eweb_not_found_404(eweb_os_t *w, struct eweb_os_hit_args *args, const char *info);
+int eweb_ok_200(eweb_os_t *w, struct eweb_os_hit_args *args, char *custom_headers, char *html, char *path);
+int eweb_hit(eweb_os_t *w, struct eweb_os_hit_args *args);
 
 int eweb_string_matches_value(const char *str, const char *value);
-char *eweb_form_value(struct hitArgs *args, long i);
-char *eweb_form_name(struct hitArgs *args, long i);
+char *eweb_form_value(struct eweb_os_hit_args *args, long i);
+char *eweb_form_name(struct eweb_os_hit_args *args, long i);
 void eweb_url_decode(char *s);
 char eweb_decode_char(char c);
-eweb_http_header_t eweb_get_header(const char *name, char *request, int max_len);
+eweb_http_header_t eweb_get_header(const char *name, const char *request, int max_len);
 
+#ifndef UNUSED
 #define UNUSED(X) ((void)(X))
+#endif
+
+extern const eweb_os_t eweb_os;
 
 #endif

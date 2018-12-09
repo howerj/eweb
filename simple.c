@@ -4,7 +4,7 @@
 #include <string.h>
 #include "eweb.h"
 
-static int simple_response(eweb_os_t *w, struct hitArgs *args, char *path, char *request_body, http_verb type) {
+static int simple_response(eweb_os_t *w, struct eweb_os_hit_args *args, char *path, char *request_body, http_verb type) {
 	UNUSED(request_body);
 	UNUSED(type);
 	eweb_ok_200(w, args, "\nContent-Type: text/html",
@@ -21,7 +21,7 @@ int main(int argc, char **argv) {
 		printf("hint: %s [port number]\n", argv[0]);
 		return EXIT_FAILURE;
 	}
-	return eweb_server(&w, atoi(argv[1]), simple_response, NULL) == EWEB_OK ?
+	return eweb_server(&w, atoi(argv[1]), simple_response) == EWEB_OK ?
 		EXIT_SUCCESS :
 		EXIT_FAILURE ;
 }

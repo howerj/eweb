@@ -7,6 +7,10 @@ OS=unix
 
 all: eweb simple
 
+libeweb.a: eweb.o ${OS}.o
+	ar rcs $@ $^
+	ranlib $@
+
 eweb: eweb.o main.o ${OS}.o
 
 simple: eweb.o simple.o ${OS}.o
@@ -15,7 +19,7 @@ check:
 	cppcheck --enable=all *.c 
 
 run: eweb
-	cd content && ../eweb 1234
+	cd content && ${TRACER} ../eweb 1234
 
 clean:
 	rm -vf *.o *.exe eweb simple
