@@ -38,7 +38,7 @@ static long eweb_init(eweb_os_t *w) {
 	return 0;
 }
 
-static void eweb_log(eweb_os_t *w, int error, const char *fmt, ...) {
+static long eweb_log(eweb_os_t *w, int error, const char *fmt, ...) {
 	assert(w);
 	FILE *output = w->file ? w->file : stderr;
 	va_list ap;
@@ -47,6 +47,8 @@ static void eweb_log(eweb_os_t *w, int error, const char *fmt, ...) {
 	vfprintf(output, fmt, ap);
 	fputc('\n', output);
 	va_end(ap);
+	fflush(output);
+	return error;
 }
 
 static void inthandler(int sig) {
@@ -71,13 +73,13 @@ static long eweb_open(eweb_os_t *w, unsigned port) {
 
 	if (port == 0) {
 		port = 8080;
-		w->log(w->file, LOG, "using default port (%u)", port);
+		w->log(w->file, EWEB_OK, "using default port (%u)", port);
 	}
 
 	errno = 0;
 	const long listenfd = socket(AF_INET, SOCK_STREAM, 0);
 	if (listenfd < 0) {
-		w->log(w, ERROR, "socket failed: %s", strerror(errno));
+		w->log(w, EWEB_ERROR, "socket failed: %s", strerror(errno));
 		return -1;
 	}
 
@@ -87,7 +89,7 @@ static long eweb_open(eweb_os_t *w, unsigned port) {
 	errno = 0;
 	/* use SO_NOSIGPIPE, to ignore any SIGPIPEs */
 	if (setsockopt(listenfd, SOL_SOCKET, SO_NOSIGPIPE, &y, sizeof(y)) < 0) {
-		w->log(w, ERROR, "setsocketopt(SO_NOSIGPIPE) failed: %s", strerror(errno));
+		w->log(w, EWEB_ERROR, "setsocketopt(SO_NOSIGPIPE) failed: %s", strerror(errno));
 		return -1;
 	}
 	y = 1;
@@ -96,7 +98,7 @@ static long eweb_open(eweb_os_t *w, unsigned port) {
 	errno = 0;
 	/* use SO_REUSEADDR, so we can restart the server without waiting */
 	if (setsockopt(listenfd, SOL_SOCKET, SO_REUSEADDR, &y, sizeof(y)) < 0) {
-		w->log(w, ERROR, "setsockopt(SO_REUSEADDR) failed: %s", strerror(errno));
+		w->log(w, EWEB_ERROR, "setsockopt(SO_REUSEADDR) failed: %s", strerror(errno));
 		return -1;
 	}
 	/* as soon as listenfd is set, keep a handler so we can close it on exit */
@@ -109,13 +111,13 @@ static long eweb_open(eweb_os_t *w, unsigned port) {
 
 	errno = 0;
 	if (bind(listenfd, (struct sockaddr *)&serv_addr, sizeof(serv_addr)) < 0) {
-		w->log(w, ERROR, "bind failed: %s", strerror(errno));
+		w->log(w, EWEB_ERROR, "bind failed: %s", strerror(errno));
 		return -1;
 	}
 
 	errno = 0;
 	if (listen(listenfd, 64) < 0) {
-		w->log(w, ERROR, "listen failed: %s", strerror(errno));
+		w->log(w, EWEB_ERROR, "listen failed: %s", strerror(errno));
 		return -1;
 	}
 
@@ -131,14 +133,14 @@ static long eweb_accept(eweb_os_t *w, int listenfd) {
 	errno = 0;
 	const int socketfd = accept(listenfd, (struct sockaddr *)&cli_addr, &length);
 	if (socketfd < 0) {
-		w->log(w, ERROR, "accept failed: %s", strerror(errno));
+		w->log(w, EWEB_ERROR, "accept failed: %s", strerror(errno));
 		return socketfd;
 	}
 
 	struct timeval timeout = { .tv_sec = 60, .tv_usec = 0 };
 	errno = 0;
 	if (setsockopt(socketfd, SOL_SOCKET, SO_RCVTIMEO, (char *)&timeout, sizeof(struct timeval)) < 0) {
-		w->log(w, ERROR, "setsocketopt(SO_RCVTIMEO) failed: %s", strerror(errno));
+		w->log(w, EWEB_ERROR, "setsocketopt(SO_RCVTIMEO) failed: %s", strerror(errno));
 		w->close(w, socketfd);
 		return -1;
 	}
@@ -177,7 +179,7 @@ static void eweb_exit(eweb_os_t *w, int code) {
 static long eweb_deint(eweb_os_t *w) {
 	assert(w);
 	UNUSED(w);
-	return 0;
+	return EWEB_OK;
 }
 
 static long eweb_sleep(eweb_os_t *w, unsigned seconds) {
@@ -185,7 +187,7 @@ static long eweb_sleep(eweb_os_t *w, unsigned seconds) {
 	UNUSED(w);
 	long i = seconds;
 	while((i = sleep(i)));
-	return i;
+	return EWEB_OK;
 }
 
 static long eweb_thread_exit(eweb_os_t *w, int exit_code) {
@@ -199,7 +201,7 @@ static long eweb_thread_exit(eweb_os_t *w, int exit_code) {
 	} else {
 		UNUSED(exit_code);
 	}
-	return 0;
+	return EWEB_OK;
 }
 
 static void *eweb_thread_main(void *targs) {
@@ -217,101 +219,52 @@ static long eweb_thread_new(eweb_os_t *w, struct eweb_os_hit_args *args) {
 	} else if (w->threading_mode == EWEB_TM_MULTI_PROCESS_E) {
 		errno = 0;
 		const int pid = fork();
-		if (pid < 0) {
-			eweb_log(w, ERROR, "failed to fork(): %d", strerror(errno));
-			return EWEB_ERROR;
-		} else {
-			if (pid == 0) { /* child */
-				close(args->listenfd);
-				eweb_hit(w, args); /* never returns */
-			} else {
-				close(args->socketfd);
-			}
+		if (pid < 0)
+			return w->log(w, EWEB_ERROR, "failed to fork(): %d", strerror(errno));
+		if (pid == 0) { /* child */
+			close(args->listenfd);
+			return eweb_hit(w, args); /* never returns */
 		}
+		close(args->socketfd);
 	} else if (w->threading_mode == EWEB_TM_MULTI_THREADS_E) {
 		pthread_t thread_id; /** ??? */
-		if (pthread_create(&thread_id, NULL, eweb_thread_main, args) != 0) {
-			eweb_log(w, ERROR, "failed to create thread");
-			return EWEB_ERROR;
-		}
+		if (pthread_create(&thread_id, NULL, eweb_thread_main, args) != 0)
+			return w->log(w, EWEB_ERROR, "failed to create thread");
 	} else {
-		eweb_log(w, ERROR, "invalid threading MODE: %u", w->threading_mode);
+		w->log(w, EWEB_ERROR, "invalid threading MODE: %u", w->threading_mode);
 		abort();
 	}
 	return EWEB_OK;
 }
 
-void *mallocx(eweb_os_t *w, size_t num_bytes) {
-	assert(w);
-	assert(!(w->allocation_error));
-	void *mem = w->allocator.malloc(w->allocator.arena, num_bytes);
-	if (!mem) {
-		w->allocation_error = 1;
-		w->log(w, ERROR, "malloc of %zu bytes failed", num_bytes);
-		exit(EXIT_FAILURE);
-	} 
-	return mem;
-}
 
-void *reallocx(eweb_os_t *w, void *ptr, size_t num_bytes) {
-	assert(w);
-	assert(!(w->allocation_error));
-	void *mem = w->allocator.realloc(w->allocator.arena, ptr, num_bytes);
-	if (!mem) {
-		w->allocation_error = 1;
-		w->log(w, ERROR, "realloc of %zu bytes failed", num_bytes);
-		exit(EXIT_FAILURE);
-	} 
-	return mem;
-}
-
-void *callocx(eweb_os_t *w, const size_t num, const size_t size) {
-	assert(w);
-	assert(!(w->allocation_error));
-	void *mem = w->allocator.malloc(w->allocator.arena, num * size); /**@todo check for overflow! */
-	if (!mem) {
-		w->allocation_error = 1;
-		w->log(w, ERROR, "calloc failed [%zu x %zu] bytes", num, size);
-		exit(EXIT_FAILURE);
-	} 
-	memset(mem, 0, num * size); 
-	return mem;
-}
-
-void freex(eweb_os_t *w, void *ptr) {
-	assert(w);
-	if (!ptr)
-		return;
-	w->allocator.free(w->allocator.arena, ptr);
-}
-
-static void eweb_free(void *arena, void *p) {
+static void eweb_os_free(void *arena, void *p) {
 	UNUSED(arena);
 	free(p);
 }
 
-static void *eweb_malloc(void *arena, size_t sz) {
+static void *eweb_os_malloc(void *arena, size_t sz) {
 	UNUSED(arena);
 	return malloc(sz);
 }
 
-static void *eweb_realloc(void *arena, void *ptr, size_t sz) {
+static void *eweb_os_realloc(void *arena, void *ptr, size_t sz) {
 	UNUSED(arena);
 	return realloc(ptr, sz);
 }
 
 static const eweb_allocator_t eweb_os_default_allocator = {
-	.malloc  = eweb_malloc,
-	.free    = eweb_free,
-	.realloc = eweb_realloc,
+	.malloc  = eweb_os_malloc,
+	.free    = eweb_os_free,
+	.realloc = eweb_os_realloc,
 	.arena = NULL,
 };
 
 const eweb_os_t eweb_os = {
 	.allocator   = {
-		.malloc  = eweb_malloc,
-		.free    = eweb_free,
-		.realloc = eweb_realloc,
+		.malloc  = eweb_os_malloc,
+		.free    = eweb_os_free,
+		.realloc = eweb_os_realloc,
 		.arena = NULL, 
 	},
 	.open        = eweb_open,

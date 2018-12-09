@@ -1,5 +1,5 @@
 CC=gcc
-CFLAGS=-Wall -Wextra -pedantic -O2 -std=c99 -Wmissing-prototypes
+CFLAGS=-Wall -Wextra -pedantic -O2 -std=c99 -Wmissing-prototypes -fwrapv
 LDFLAGS=-pthread
 OS=unix
 
@@ -19,7 +19,7 @@ check:
 	cppcheck --enable=all *.c 
 
 run: eweb
-	cd content && ${TRACER} ../eweb 1234
+	cd content && ${TRACER} ../eweb -p 1234
 
 clean:
 	rm -vf *.o *.exe eweb simple

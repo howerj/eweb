@@ -21,9 +21,6 @@ typedef enum {
 	EWEB_TM_MULTI_THREADS_E = 3,
 } eweb_threading_mode_e;
 
-#define ERROR    (42)
-#define LOG      (43)
-
 typedef enum {
 	EWEB_RT_HTTP_NOT_SUPPORTED_E = 100,
 	EWEB_RT_HTTP_GET_E           = 101,
@@ -31,7 +28,6 @@ typedef enum {
 } eweb_http_request_type_e;
 
 typedef int http_verb;
-typedef int log_type;
 
 typedef struct {
 	char name[50];
@@ -47,7 +43,7 @@ typedef struct {
 	void *(*realloc) (void *w, void *ptr, size_t bytes); /* realloc equivalent */
 	void  (*free)    (void *w, void *ptr);               /* free equivalent */
 	void *arena;
-} eweb_allocator_t; /**@todo integrate this */
+} eweb_allocator_t;
 
 struct eweb_os {
 	eweb_allocator_t allocator;
@@ -60,7 +56,7 @@ struct eweb_os {
 
 	long (*sleep)(eweb_os_t *w, unsigned seconds); /* sleep for X seconds */
 
-	void (*log)(eweb_os_t *w, int error, const char *fmt, ...); /* log an error message */
+	long (*log)(eweb_os_t *w, int error, const char *fmt, ...); /* log an error message, returns 'error' */
 	void (*exit)(eweb_os_t *w, int code); /* exit process */
 
 	long (*init)(eweb_os_t *w);   /* initialize web server */
@@ -85,10 +81,10 @@ void eweb_os_delete(eweb_os_t *w);
 
 /* ---------- Memory allocation helpers ---------- */
 
-void *mallocx(eweb_os_t *w, size_t num_bytes);
-void *reallocx(eweb_os_t *w, void *ptr, size_t num_bytes);
-void *callocx(eweb_os_t *w, size_t num, size_t size);
-void freex(eweb_os_t *w, void *ptr);
+void *eweb_malloc_or_die(eweb_os_t *w, size_t num_bytes);
+void *eweb_realloc_or_die(eweb_os_t *w, void *ptr, size_t num_bytes);
+void *eweb_calloc_or_die(eweb_os_t *w, size_t num, size_t size);
+void eweb_free(eweb_os_t *w, void *ptr);
 
 typedef struct {
 	void *ptr;        /**< pointer to the data */
@@ -113,7 +109,7 @@ typedef struct {
 	char *data;
 } eweb_form_value_t;
 
-typedef int (*responder_cb_t) (eweb_os_t *w, struct eweb_os_hit_args * args, char *, char *, http_verb);
+typedef int (*responder_cb_t) (eweb_os_t *w, struct eweb_os_hit_args * args, const char *, const char *, http_verb);
 
 struct eweb_os_hit_args {
 	responder_cb_t responder_function;
@@ -136,13 +132,13 @@ int eweb_write_header(eweb_os_t *w, int socket_fd, const char *head, long conten
 int eweb_write_html(eweb_os_t *w, int socket_fd, const char *head, const char *html);
 int eweb_forbidden_403(eweb_os_t *w, struct eweb_os_hit_args *args, const char *info);
 int eweb_not_found_404(eweb_os_t *w, struct eweb_os_hit_args *args, const char *info);
-int eweb_ok_200(eweb_os_t *w, struct eweb_os_hit_args *args, char *custom_headers, char *html, char *path);
+int eweb_ok_200(eweb_os_t *w, struct eweb_os_hit_args *args, const char *custom_headers, const char *html, const char *path);
 int eweb_hit(eweb_os_t *w, struct eweb_os_hit_args *args);
 
 int eweb_string_matches_value(const char *str, const char *value);
 char *eweb_form_value(struct eweb_os_hit_args *args, long i);
 char *eweb_form_name(struct eweb_os_hit_args *args, long i);
-void eweb_url_decode(char *s);
+int eweb_url_decode(eweb_os_t *w, char *s);
 char eweb_decode_char(char c);
 eweb_http_header_t eweb_get_header(const char *name, const char *request, int max_len);
 

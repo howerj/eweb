@@ -19,20 +19,21 @@ This project is a work in progress.
   * [x] Create callback mechanism
   * [x] Make a Unix file, containing operating system specific components
   * [ ] Port to Windows
-* [ ] Lint the code
+* [x] Lint the code
 * [ ] Make a version that communicates via standard in/standard out to
   facilitate fuzzing
 * [ ] Allow multiple web servers to run at the same time
 * [ ] More assertions
-* [ ] Make code const correct
+* [x] Make code const correct
 * [ ] Error codes should be used throughout, and errors caught instead of
   ignored.
 * [ ] Integrate <https://github.com/howerj/pickle> for CGI applications.
 * [ ] Add a custom block allocator, for embedded use.
 * [ ] Integrate with <https://cr.yp.to/cdb.html>
-* [ ] Demonstration code should restore terminal settings, or not mess them
+* [x] Demonstration code should restore terminal settings, or not mess them
   up on failure
-* [ ] Add getopt
+* [x] Add getopt
+* [ ] Basic Authentication Method <https://en.wikipedia.org/wiki/Basic_access_authentication>
 * [ ] Add manual page
 * [ ] Add basic authentication
 * [ ] Add optional HTTPS support
