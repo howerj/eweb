@@ -109,9 +109,10 @@ typedef struct {
 	char *data;
 } eweb_form_value_t;
 
-typedef int (*responder_cb_t) (eweb_os_t *w, struct eweb_os_hit_args * args, const char *, const char *, http_verb);
 
-struct eweb_os_hit_args {
+typedef int (*responder_cb_t) (eweb_os_t *w, struct eweb_os_hit_args *args, const char *, const char *, http_verb);
+
+typedef struct eweb_os_hit_args {
 	responder_cb_t responder_function;
 	string_t *buffer;
 	char *headers;
@@ -119,10 +120,10 @@ struct eweb_os_hit_args {
 	eweb_form_value_t *form_values;
 	long content_length;
 	long form_value_counter;
-	long hit;
+	unsigned long hit;
 	int socketfd, listenfd;
-	eweb_os_t *w; /**< @todo remove TEMPORARY HACK */
-};
+	eweb_os_t *w;
+} eweb_os_hit_args_t;
 
 enum { EWEB_OK, EWEB_ERROR };
 
@@ -130,14 +131,14 @@ int eweb_server(eweb_os_t *w, unsigned port, responder_cb_t responder_func);
 int eweb_server_kill(eweb_os_t *w);
 int eweb_write_header(eweb_os_t *w, int socket_fd, const char *head, long content_len);
 int eweb_write_html(eweb_os_t *w, int socket_fd, const char *head, const char *html);
-int eweb_forbidden_403(eweb_os_t *w, struct eweb_os_hit_args *args, const char *info);
-int eweb_not_found_404(eweb_os_t *w, struct eweb_os_hit_args *args, const char *info);
-int eweb_ok_200(eweb_os_t *w, struct eweb_os_hit_args *args, const char *custom_headers, const char *html, const char *path);
-int eweb_hit(eweb_os_t *w, struct eweb_os_hit_args *args);
+int eweb_forbidden_403(eweb_os_t *w, eweb_os_hit_args_t *args, const char *info);
+int eweb_not_found_404(eweb_os_t *w, eweb_os_hit_args_t *args, const char *info);
+int eweb_ok_200(eweb_os_t *w, eweb_os_hit_args_t *args, const char *custom_headers, const char *html, const char *path);
+int eweb_hit(eweb_os_t *w, eweb_os_hit_args_t *args);
 
 int eweb_string_matches_value(const char *str, const char *value);
-char *eweb_form_value(struct eweb_os_hit_args *args, long i);
-char *eweb_form_name(struct eweb_os_hit_args *args, long i);
+char *eweb_form_value(eweb_os_hit_args_t *args, long i);
+char *eweb_form_name(eweb_os_hit_args_t *args, long i);
 int eweb_url_decode(eweb_os_t *w, char *s);
 char eweb_decode_char(char c);
 eweb_http_header_t eweb_get_header(const char *name, const char *request, const long max_len);

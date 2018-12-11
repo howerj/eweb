@@ -4,7 +4,7 @@
 #include <string.h>
 #include "eweb.h"
 
-static int simple_response(eweb_os_t *w, struct eweb_os_hit_args *args, const char *path, const char *request_body, http_verb type) {
+static int simple_response(eweb_os_t *w, eweb_os_hit_args_t *args, const char *path, const char *request_body, http_verb type) {
 	UNUSED(request_body);
 	UNUSED(type);
 	return eweb_ok_200(w, args, "\nContent-Type: text/html",

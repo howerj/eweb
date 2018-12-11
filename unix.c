@@ -70,12 +70,7 @@ static long eweb_kill(eweb_os_t *w) {
 static long eweb_open(eweb_os_t *w, unsigned port) {
 	assert(w);
 	struct sockaddr_in serv_addr = { 0 };
-
-	if (port == 0) {
-		port = 8080;
-		w->log(w->file, EWEB_OK, "using default port (%u)", port);
-	}
-
+	assert(port > 0);
 	errno = 0;
 	const long listenfd = socket(AF_INET, SOCK_STREAM, 0);
 	if (listenfd < 0) {
@@ -205,13 +200,13 @@ static long eweb_thread_exit(eweb_os_t *w, int exit_code) {
 }
 
 static void *eweb_thread_main(void *targs) {
-	struct eweb_os_hit_args *args = (struct eweb_os_hit_args *)targs;
+	eweb_os_hit_args_t *args = (struct eweb_os_hit_args *)targs;
 	pthread_detach(pthread_self());
 	eweb_hit(args->w, args);
 	return NULL;
 }
 
-static long eweb_thread_new(eweb_os_t *w, struct eweb_os_hit_args *args) {
+static long eweb_thread_new(eweb_os_t *w, eweb_os_hit_args_t *args) {
 	assert(w);
 	assert(args);
 	if (w->threading_mode == EWEB_TM_SINGLE_THREAD_E) { /**@todo allow configurable mode selection */

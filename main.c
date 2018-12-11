@@ -127,7 +127,7 @@ static const char *find_file_type_by_file_extension(const char *path, size_t pat
 }
 
 /* a simple API, it receives a number, increments it and returns the response */
-static int send_api_response(eweb_os_t *w, struct eweb_os_hit_args *args, const char *path, const char *request_body) {
+static int send_api_response(eweb_os_t *w, eweb_os_hit_args_t *args, const char *path, const char *request_body) {
 	assert(w);
 	UNUSED(request_body);
 	if (args->form_value_counter == 1 && !strncmp(eweb_form_name(args, 0), "counter", strlen(eweb_form_name(args, 0)))) {
@@ -141,7 +141,7 @@ static int send_api_response(eweb_os_t *w, struct eweb_os_hit_args *args, const 
 	return eweb_forbidden_403(w, args, "Bad request");
 }
 
-static int send_file_response(eweb_os_t *w, struct eweb_os_hit_args *args, const char *path, const char *request_body, long path_length) {
+static int send_file_response(eweb_os_t *w, eweb_os_hit_args_t *args, const char *path, const char *request_body, long path_length) {
 	assert(w);
 	UNUSED(request_body);
 	FILE *file = NULL;
@@ -150,7 +150,7 @@ static int send_file_response(eweb_os_t *w, struct eweb_os_hit_args *args, const
 		goto fail;
 
 	if (args->form_value_counter > 0 && eweb_string_matches_value(args->content_type, "application/x-www-form-urlencoded")) {
-		if (!string_add(w, response, "<html><head><title>Response Page</title></head>"))
+		if (!string_add(w, response, "<!DOCTYPE html>\n<html><head><title>Response Page</title></head>"))
 			goto fail;
 		if (!string_add(w, response, "<body><h1>Thanks...</h1>You sent these values<br/><br/>"))
 			goto fail;
@@ -185,9 +185,14 @@ static int send_file_response(eweb_os_t *w, struct eweb_os_hit_args *args, const
 		return eweb_not_found_404(w, args, "failed to open file");
 	}
 
-	fseek(file, 0, SEEK_END);
+	const int r1 = fseek(file, 0, SEEK_END);
 	long len = ftell(file);
-	fseek(file, 0, SEEK_SET);
+	const int r2 = fseek(file, 0, SEEK_SET);
+	if (r1 == -1 || r2 == -1 || len == -1) {
+		string_free(w, response);
+		fclose(file);
+		return eweb_forbidden_403(w, args, "seek/tell failed");
+	}
 
 	if (len > BIGGEST_FILE) {
 		string_free(w, response);
@@ -223,7 +228,7 @@ fail:
 	return EWEB_ERROR;
 }
 
-static int send_response(eweb_os_t *w, struct eweb_os_hit_args *args, const char *path, const char *request_body, http_verb type) {
+static int send_response(eweb_os_t *w, eweb_os_hit_args_t *args, const char *path, const char *request_body, http_verb type) {
 	assert(w);
 	assert(path);
 	UNUSED(type);
@@ -262,7 +267,7 @@ selected from with the '-m' flag. Valid modes are 'thread', 'fork'\n\
 and 'single'. Your platform may not support all modes.\n\
 \n";
 	fputs(m, output);
-	fprintf(output, "The default port the server listens on is %u.\n\n", DEFAULT_PORT);
+	fprintf(output, "The default port the server listens on is %d.\n\n", DEFAULT_PORT);
 	fprintf(output, "This program returns %d on success, and %d on failure.\n\n", EXIT_SUCCESS, EXIT_FAILURE);
 	return 0;
 }
