@@ -5,29 +5,71 @@
  * @brief     Operating system specific functionality for the eweb web-server,
  * available at <https://github.com/howerj/eweb>. */
 
+#define _WIN32_WINNT 0x0600
 #include "eweb.h"
-#include <assert.h>
-#include <ctype.h>
-#include <errno.h>
-#include <signal.h>
-#include <stdarg.h>
-#include <stdio.h>
 #include <stdlib.h>
+#include <stdbool.h>
+#include <stdio.h>
+#include <assert.h>
+#include <limits.h>
 #include <string.h>
-#include <arpa/inet.h>
+#include <stdint.h>
+#include <direct.h>
+#include <time.h>
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#include <io.h>
 #include <fcntl.h>
-#include <pthread.h>
-#include <sys/socket.h>
-#include <sys/time.h>
-#include <unistd.h>
+#include <conio.h>
 
 /**@todo remove these globals */
 /* a global place to store the listening socket descriptor*/
-static int listenfd; // @warning Not set!
-static volatile sig_atomic_t doing_shutdown = 0;
+//static int listenfd; // @warning Not set!
+static volatile /*sig_atomic_t*/ int doing_shutdown = 0;
+
+static bool tcp_stack_initialized = false;
+
+/*#pragma comment(lib, "Ws2_32.lib")*/
+
+/* https://msdn.microsoft.com/en-us/library/ms679351%28v=VS.85%29.aspx
+ * https://stackoverflow.com/questions/3400922/how-do-i-retrieve-an-error-string-from-wsagetlasterror */
+static void winsock_perror(char *msg) {
+	wchar_t *s = NULL;
+	int e = WSAGetLastError();
+	FormatMessageW(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS,
+		       NULL, e,
+		       MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
+		       (LPWSTR)&s, 0, NULL);
+	//fprintf(stderr, "%s: (%d) %S", msg, e, s);
+	fprintf(stderr, "%s: (%d)", msg, e);
+	LocalFree(s);
+}
+
+static void binary(FILE *f) {
+    assert(f);
+    setmode(_fileno(f), O_BINARY);
+}
+
+static void win_once_init(void) {
+	static WSADATA wsaData;
+	if(tcp_stack_initialized)
+            return;
+
+        binary(stdin);
+        binary(stdout);
+        binary(stderr);
+
+        if(WSAStartup(MAKEWORD(2, 2), &wsaData) != 0) {
+                winsock_perror("WSAStartup failed");
+                exit(EXIT_FAILURE);
+        }
+        tcp_stack_initialized = true;
+}
 
 static long eweb_init(eweb_os_t *w) {
 	UNUSED(w);
+	win_once_init();
+#if 0
 #ifndef SIGCLD
 	signal(SIGCHLD, SIG_IGN);
 #else
@@ -35,6 +77,7 @@ static long eweb_init(eweb_os_t *w) {
 #endif
 	signal(SIGHUP,  SIG_IGN); /* ignore terminal hangups */
 	signal(SIGPIPE, SIG_IGN); /* ignore broken pipes */
+#endif
 	return 0;
 }
 
@@ -51,7 +94,7 @@ static long eweb_log(eweb_os_t *w, int error, const char *fmt, ...) {
 	return error;
 }
 
-static void inthandler(int sig) {
+/*static void inthandler(int sig) {
 	if (doing_shutdown == 1)
 		return;
 	doing_shutdown = 1;
@@ -59,11 +102,11 @@ static void inthandler(int sig) {
 	close(listenfd);
 	if (sig != SIGUSR1)
 		exit(0);
-}
+}*/
 
 static long eweb_kill(eweb_os_t *w) {
 	UNUSED(w);
-	inthandler(SIGUSR1);
+	//inthandler(SIGUSR1);
 	return EWEB_OK;
 }
 
@@ -83,27 +126,16 @@ static long eweb_open(eweb_os_t *w, unsigned port) {
 		return -1;
 	}
 
-	/* For Linux support, MSG_NOSIGNAL is used: See <http://stackoverflow.com/questions/108183/> */
 	int y = 1;
-#ifdef SO_NOSIGPIPE
-	errno = 0;
-	/* use SO_NOSIGPIPE, to ignore any SIGPIPEs */
-	if (setsockopt(listenfd, SOL_SOCKET, SO_NOSIGPIPE, &y, sizeof(y)) < 0) {
-		w->log(w, EWEB_ERROR, "setsocketopt(SO_NOSIGPIPE) failed: %s", strerror(errno));
-		return -1;
-	}
-	y = 1;
-#endif
-
 	errno = 0;
 	/* use SO_REUSEADDR, so we can restart the server without waiting */
-	if (setsockopt(listenfd, SOL_SOCKET, SO_REUSEADDR, &y, sizeof(y)) < 0) {
+	if (setsockopt(listenfd, SOL_SOCKET, SO_REUSEADDR, (char*)&y, sizeof(y)) < 0) {
 		w->log(w, EWEB_ERROR, "setsockopt(SO_REUSEADDR) failed: %s", strerror(errno));
 		return -1;
 	}
 	/* as soon as listenfd is set, keep a handler so we can close it on exit */
-	signal(SIGINT, inthandler);
-	signal(SIGTERM, inthandler);
+	//signal(SIGINT, inthandler);
+	//signal(SIGTERM, inthandler);
 
 	serv_addr.sin_family = AF_INET;
 	serv_addr.sin_addr.s_addr = htonl(INADDR_ANY);
@@ -151,23 +183,19 @@ static long eweb_accept(eweb_os_t *w, int listenfd) {
 static long eweb_close(eweb_os_t *w, int fd) {
 	assert(w);
 	UNUSED(w);
-	return close(fd);
+	return close(fd); // !? closesocket(fd);
 }
 
 static long eweb_write(eweb_os_t *w, int fd, const void *buf, size_t count) {
 	assert(w);
 	UNUSED(w);
-#ifndef SO_NOSIGPIPE
-	return send(fd, buf, count, MSG_NOSIGNAL);
-#else
-	return write(fd, buf, count);
-#endif
+	return send(fd, buf, count, 0); // !? Flags
 }
 
 static long eweb_read(eweb_os_t *w,  int fd, void *buf, size_t count) {
 	assert(w);
 	UNUSED(w);
-	return read(fd, buf, count);
+	return recv(fd, buf, count, 0); // !? Flags
 }
 
 static void eweb_exit(eweb_os_t *w, int code) {
@@ -175,6 +203,14 @@ static void eweb_exit(eweb_os_t *w, int code) {
 	UNUSED(w);
 	exit(code);
 }
+
+/*static void tcp_stack_cleanup(void)
+{
+	if(tcp_stack_initialized && WSACleanup() != 0) {
+		winsock_perror("WSACleanup() failed");
+		exit(EXIT_FAILURE);
+	}
+}*/
 
 static long eweb_deint(eweb_os_t *w) {
 	assert(w);
@@ -185,8 +221,7 @@ static long eweb_deint(eweb_os_t *w) {
 static long eweb_sleep(eweb_os_t *w, unsigned seconds) {
 	assert(w);
 	UNUSED(w);
-	long i = seconds;
-	while((i = sleep(i)));
+	Sleep(seconds * 1000ul);
 	return EWEB_OK;
 }
 
@@ -197,38 +232,26 @@ static long eweb_thread_exit(eweb_os_t *w, int exit_code) {
 		w->exit(w, exit_code);
 	} else if (w->threading_mode == EWEB_TM_MULTI_THREADS_E) {
 		UNUSED(exit_code);
-		pthread_exit(NULL);
+		ExitThread(exit_code);
 	} else {
 		UNUSED(exit_code);
 	}
 	return EWEB_OK;
 }
 
-static void *eweb_thread_main(void *targs) {
+static DWORD WINAPI eweb_thread_main(void *targs) {
 	struct eweb_os_hit_args *args = (struct eweb_os_hit_args *)targs;
-	pthread_detach(pthread_self());
-	eweb_hit(args->w, args);
-	return NULL;
+	//pthread_detach(pthread_self()); // need to join in server thread?
+	return eweb_hit(args->w, args);
 }
 
 static long eweb_thread_new(eweb_os_t *w, struct eweb_os_hit_args *args) {
 	assert(w);
 	assert(args);
-	if (w->threading_mode == EWEB_TM_SINGLE_THREAD_E) { /**@todo allow configurable mode selection */
+	if (w->threading_mode == EWEB_TM_SINGLE_THREAD_E) {
 		return eweb_hit(w, args);
-	} else if (w->threading_mode == EWEB_TM_MULTI_PROCESS_E) {
-		errno = 0;
-		const int pid = fork();
-		if (pid < 0)
-			return w->log(w, EWEB_ERROR, "failed to fork(): %d", strerror(errno));
-		if (pid == 0) { /* child */
-			close(args->listenfd);
-			return eweb_hit(w, args); /* never returns */
-		}
-		close(args->socketfd);
 	} else if (w->threading_mode == EWEB_TM_MULTI_THREADS_E) {
-		pthread_t thread_id; /** ??? */
-		if (pthread_create(&thread_id, NULL, eweb_thread_main, args) != 0)
+		if (!CreateThread(NULL, 0, eweb_thread_main, args, 0, NULL))
 			return w->log(w, EWEB_ERROR, "failed to create thread");
 	} else {
 		w->log(w, EWEB_ERROR, "invalid threading MODE: %u", w->threading_mode);
@@ -236,7 +259,6 @@ static long eweb_thread_new(eweb_os_t *w, struct eweb_os_hit_args *args) {
 	}
 	return EWEB_OK;
 }
-
 
 static void eweb_os_free(void *arena, void *p) {
 	UNUSED(arena);
@@ -294,11 +316,15 @@ eweb_os_t *eweb_os_new(eweb_allocator_t *allocator, eweb_threading_mode_e mode) 
 	w->file = stderr;
 	w->allocator = *a;
 	switch (mode) {
-	case EWEB_TM_SINGLE_THREAD_E: break;
-	case EWEB_TM_MULTI_PROCESS_E: break;
-	default: /* fall through */
+	case EWEB_TM_MULTI_PROCESS_E:
+		fprintf(stderr, "Warning! Threading, not multi-process, used.\n");
+		/* fall-through */
 	case EWEB_TM_MULTI_THREADS_E:
-		mode = EWEB_TM_MULTI_THREADS_E;
+		break;
+	case EWEB_TM_SINGLE_THREAD_E: /* fall-through */
+	default:
+		fprintf(stderr, "Warning! Single threaded only\n");
+		mode = EWEB_TM_SINGLE_THREAD_E;
 		break;
 	}
 	w->threading_mode = mode;

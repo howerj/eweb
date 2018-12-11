@@ -1,0 +1,52 @@
+.\" Manpage for eweb
+.\" Contact howe.r.j.89@gmail.com to correct errors or typos.
+.TH eweb 1 "10 Dec 2018" "0.99.0" "eweb man page"
+.SH NAME
+eweb \- eweb web-server.
+.SH SYNOPSIS
+eweb [-h] [-p number] [-m single/thread/fork]
+.SH DESCRIPTION
+This is a small web-server that will start serving files from the current
+directory upwards (it should disallow access to the parent directory). The
+program is meant as a test driver for the library, which is meant to be; small,
+portable and embeddable in systems which contain a Berkeley Sockets like TCP/IP
+socket layer (such as every Unix, Windows, and many microcontrollers).
+
+.SH OPTIONS
+No options are mandatory. The default port it listens to is 8080. The log is
+written to stdout(3).
+
+.TP
+.B -h
+Print a help message and exit.
+
+.TP
+.B -p number
+Port number to listen on.
+
+.TP
+.B -m mode
+Set server threading mode, can be 'single', 'thread' or 'fork'.
+
+.SH EXIT STATUS
+
+This command returns zero on success and non zero on failure.
+
+.SH SEE ALSO
+
+For more information, see
+.B https://github.com/howerj/eweb
+which contains this projects source, and
+.B https://github.com/davidsblog/dweb
+for the parent program eweb comes from.
+
+.SH BUGS
+
+For any bugs, please contact Richard James Howe (howe.r.j.89@gmail.com).
+
+.SH COPYRIGHT
+The eweb program is licensed under the MIT license, and is derived from another
+MIT license program called 'dweb' (Copyright (c) 2014-2016
+http://www.codehosting.net). Changes to this program are also licensed under
+the MIT license (Copyright (c) 2018, Richard James Howe).
+

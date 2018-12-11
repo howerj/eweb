@@ -48,7 +48,7 @@ static int eweb_getopt(eweb_getopt_t *opt, const int argc, char *const argv[], c
 			opt->place = string_empty;
 			return -1;
 		}
-	} 
+	}
 
 	const char *oli; /* option letter list index */
 	if ((opt->option = *opt->place++) == ':' || !(oli = strchr(fmt, opt->option))) { /* option letter okay? */
@@ -137,7 +137,7 @@ static int send_api_response(eweb_os_t *w, struct eweb_os_hit_args *args, const 
 			c = 0;
 		snprintf(response, sizeof response, "%d", ++c);
 		return eweb_ok_200(w, args, "\nContent-Type: text/plain", response, path);
-	} 
+	}
 	return eweb_forbidden_403(w, args, "Bad request");
 }
 
@@ -213,7 +213,7 @@ static int send_file_response(eweb_os_t *w, struct eweb_os_hit_args *args, const
 	}
 	string_free(w, response);
 	fclose(file);
-	
+
 	w->sleep(w, 1); /* allow socket to drain before closing */
 	return EWEB_OK;
 fail:
@@ -305,7 +305,7 @@ int main(int argc, char **argv) {
 		return EXIT_FAILURE;
 	}
 
-	fprintf(stdout, "Hit CTRL-C to terminate\n");
+	w->log(w, EWEB_OK, "hit CTRL-C to terminate");
 	const int r = eweb_server(w, port, send_response) == EWEB_OK ? EXIT_SUCCESS : EXIT_FAILURE;
 	eweb_os_delete(w);
 	return r;

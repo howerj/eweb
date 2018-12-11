@@ -9,8 +9,9 @@ This project is a work in progress.
 
 ## To Do
 
-* [ ] Cleanup project
-  * [ ] API changes (callbacks, error codes)
+* [ ] Rewrite this readme.md file
+* [x] Cleanup project
+  * [x] API changes (callbacks, error codes)
   * [x] Change logo
   * [x] Change favicon
   * [x] Change project references
@@ -18,11 +19,11 @@ This project is a work in progress.
 * [ ] Separate out operating system dependencies
   * [x] Create callback mechanism
   * [x] Make a Unix file, containing operating system specific components
-  * [ ] Port to Windows
+  * [x] Port to Windows
+    * [ ] Make Windows Port less buggy
 * [x] Lint the code
 * [ ] Make a version that communicates via standard in/standard out to
   facilitate fuzzing
-* [ ] Allow multiple web servers to run at the same time
 * [ ] More assertions
 * [x] Make code const correct
 * [ ] Error codes should be used throughout, and errors caught instead of
@@ -34,7 +35,7 @@ This project is a work in progress.
   up on failure
 * [x] Add getopt
 * [ ] Basic Authentication Method <https://en.wikipedia.org/wiki/Basic_access_authentication>
-* [ ] Add manual page
+* [x] Add manual page
 * [ ] Add basic authentication
 * [ ] Add optional HTTPS support
 * [ ] Turn into a library

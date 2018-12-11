@@ -1,7 +1,7 @@
 /**@file      eweb.c
  * @license   MIT
  * @copyright 2015-2016 http://www.codehosting.net
- * @copyright 2018      Richard James Howe (Changes) 
+ * @copyright 2018      Richard James Howe (Changes)
  * @brief     A small, portable, embeddable web-server, written in C. The
  * code is heavily based on the 'dweb' web-server available at
  * <http://www.codehosting.net>, specifically
@@ -19,18 +19,18 @@
 #define FORM_VALUE_BLOCK     (10)   /**< eweb_get_form_values() allocates memory in blocks of this size */
 #define READ_BUF_LEN         (255)  /**< eweb_hit() will read data from socket in chunks of this size */
 
-/* Taken from: <https://git.musl-libc.org/cgit/musl/tree/src/string/strtok_r.c> 
+/* Taken from: <https://git.musl-libc.org/cgit/musl/tree/src/string/strtok_r.c>
  * MIT LICENSED*/
 static char *eweb_strtok(char *restrict s, const char *restrict sep, char **restrict p) {
-	if (!s && !(s = *p)) 
+	if (!s && !(s = *p))
 		return NULL;
 	s += strspn(s, sep);
-	if (!*s) 
+	if (!*s)
 		return *p = 0;
 	*p = s + strcspn(s, sep);
-	if (**p) 
+	if (**p)
 		*(*p)++ = 0;
-	else 
+	else
 		*p = 0;
 	return s;
 }
@@ -200,13 +200,13 @@ fail:
 	return EWEB_ERROR;
 }
 
-eweb_http_header_t eweb_get_header(const char *name, const char *request, int max_len) {
+eweb_http_header_t eweb_get_header(const char *name, const char *request, const long max_len) {
 	assert(name);
 	assert(request);
 	eweb_http_header_t retval = { .name = { 0 } };
 	size_t x = 0;
 	char *ptr = strstr(request, name);
-	char *end = ptr + max_len;
+	char * const end = ptr + max_len;
 	strncpy(retval.name, name, sizeof(retval.name) - 1);
 	retval.name[sizeof(retval.name) - 1] = 0;
 
@@ -215,8 +215,8 @@ eweb_http_header_t eweb_get_header(const char *name, const char *request, int ma
 		return retval;
 	}
 
-	while (*ptr++ != ':' && ptr <= end) ;
-	while (isblank(*++ptr) && ptr <= end) ;
+	while (*ptr++ != ':' && ptr <= end) ; // !?
+	while (isblank(*++ptr) && ptr <= end) ; // !?
 	while (x < (sizeof(retval.value) - 1) && *ptr != '\r' && *ptr != '\n' && ptr <= end)
 		retval.value[x++] = *ptr++;
 	retval.value[x] = 0;
@@ -249,7 +249,8 @@ int eweb_hit(eweb_os_t *w, struct eweb_os_hit_args *args) {
 	/* We need to read the HTTP headers first so loop until we receive "\r\n\r\n" */
 	while (eweb_get_body_start(string_chars(w, args->buffer)) < 0 && args->buffer->used_bytes <= MAX_INCOMING_REQUEST) {
 		memset(buf, 0, READ_BUF_LEN + 1);
-		request_size += w->read(w, args->socketfd, buf, READ_BUF_LEN);
+		request_size += w->read(w, args->socketfd, buf, READ_BUF_LEN); // !!
+		//fprintf(stderr, "read: %ld, socket: %d\n", request_size, args->socketfd);
 		string_add(w, args->buffer, buf); // !!
 		if (buf[0] == 0)
 			break;
@@ -292,7 +293,7 @@ int eweb_hit(eweb_os_t *w, struct eweb_os_hit_args *args) {
 	}
 
 	if (request_size <= 0) { /* cannot read request, so we'll stop */
-		if (eweb_forbidden_403(w, args, "failed to read http request") != EWEB_OK)
+		if (eweb_forbidden_403(w, args, "failed to read http request") != EWEB_OK) // !? Odd error message...
 			return EWEB_ERROR;
 		return eweb_finish_hit(w, args, 3);
 	}
@@ -357,10 +358,10 @@ int eweb_server_kill(eweb_os_t *w) {
 	return w->kill(w);
 }
 
-int eweb_server(eweb_os_t *w, int port, responder_cb_t responder_func) {
+int eweb_server(eweb_os_t *w, const unsigned port, responder_cb_t responder_func) {
 	assert(w);
 
-	w->log(w, EWEB_OK, "eweb server initialized");
+	w->log(w, EWEB_OK, "eweb server initialized (port = %u), (mode = %u)", port, w->threading_mode);
 	if (w->init(w) < 0)
 		return w->log(w, EWEB_ERROR, "initialization failed");
 
@@ -463,7 +464,7 @@ void *eweb_malloc_or_die(eweb_os_t *w, size_t num_bytes) {
 		w->allocation_error = 1;
 		w->log(w, EWEB_ERROR, "malloc of %zu bytes failed", num_bytes);
 		w->exit(w, 1);
-	} 
+	}
 	return mem;
 }
 
@@ -475,7 +476,7 @@ void *eweb_realloc_or_die(eweb_os_t *w, void *ptr, size_t num_bytes) {
 		w->allocation_error = 1;
 		w->log(w, EWEB_ERROR, "realloc of %zu bytes failed", num_bytes);
 		w->exit(w, 1);
-	} 
+	}
 	return mem;
 }
 
@@ -487,8 +488,8 @@ void *eweb_calloc_or_die(eweb_os_t *w, const size_t num, const size_t size) {
 		w->allocation_error = 1;
 		w->log(w, EWEB_ERROR, "calloc failed [%zu x %zu] bytes", num, size);
 		w->exit(w, 1);
-	} 
-	memset(mem, 0, num * size); 
+	}
+	memset(mem, 0, num * size);
 	return mem;
 }
 
@@ -510,7 +511,7 @@ static inline int bcreate(eweb_os_t *w, block_t *b, const long elem_size, const 
 	return EWEB_OK;
 }
 
-static int badd(eweb_os_t *w, block_t *b, const void *data, long len) {
+static int badd(eweb_os_t *w, block_t *b, const void *data, const long len) {
 	assert(b);
 	assert(data);
 	if ((b->alloc_bytes - b->used_bytes) < len) {

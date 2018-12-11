@@ -1,7 +1,7 @@
 /**@file      eweb.h
  * @license   MIT
  * @copyright 2015-2016 http://www.codehosting.net
- * @copyright 2018      Richard James Howe (Changes) 
+ * @copyright 2018      Richard James Howe (Changes)
  * @brief     A small, portable, embeddable web-server, written in C. The
  * code is heavily based on the 'dweb' web-server available at
  * <http://www.codehosting.net>, specifically
@@ -126,7 +126,7 @@ struct eweb_os_hit_args {
 
 enum { EWEB_OK, EWEB_ERROR };
 
-int eweb_server(eweb_os_t *w, int port, responder_cb_t responder_func);
+int eweb_server(eweb_os_t *w, unsigned port, responder_cb_t responder_func);
 int eweb_server_kill(eweb_os_t *w);
 int eweb_write_header(eweb_os_t *w, int socket_fd, const char *head, long content_len);
 int eweb_write_html(eweb_os_t *w, int socket_fd, const char *head, const char *html);
@@ -140,7 +140,7 @@ char *eweb_form_value(struct eweb_os_hit_args *args, long i);
 char *eweb_form_name(struct eweb_os_hit_args *args, long i);
 int eweb_url_decode(eweb_os_t *w, char *s);
 char eweb_decode_char(char c);
-eweb_http_header_t eweb_get_header(const char *name, const char *request, int max_len);
+eweb_http_header_t eweb_get_header(const char *name, const char *request, const long max_len);
 
 #ifndef UNUSED
 #define UNUSED(X) ((void)(X))
