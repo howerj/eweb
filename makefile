@@ -17,10 +17,10 @@ libeweb.a: eweb.o ${OS}.o
 	ar rcs $@ $^
 	ranlib $@
 
-eweb: eweb.o main.o ${OS}.o
+eweb: main.o libeweb.a
 	${CC} ${CFLAGS} $^ ${LDFLAGS} -o $@
 
-simple: eweb.o simple.o ${OS}.o
+simple: simple.o libeweb.a
 	${CC} ${CFLAGS} $^ ${LDFLAGS} -o $@
 
 check:

@@ -20,7 +20,7 @@ This project is a work in progress.
   * [x] Create callback mechanism
   * [x] Make a Unix file, containing operating system specific components
   * [x] Port to Windows
-    * [ ] Make Windows Port less buggy
+    * [x] Make Windows Port less buggy
 * [x] Lint the code
 * [ ] Make a version that communicates via standard in/standard out to
   facilitate fuzzing

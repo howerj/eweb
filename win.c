@@ -22,11 +22,6 @@
 #include <fcntl.h>
 #include <conio.h>
 
-/**@todo remove these globals */
-/* a global place to store the listening socket descriptor*/
-//static int listenfd; // @warning Not set!
-static volatile /*sig_atomic_t*/ int doing_shutdown = 0;
-
 static bool tcp_stack_initialized = false;
 
 /*#pragma comment(lib, "Ws2_32.lib")*/
@@ -52,14 +47,14 @@ static void binary(FILE *f) {
 
 static void win_once_init(void) {
 	static WSADATA wsaData;
-	if(tcp_stack_initialized)
+	if (tcp_stack_initialized)
             return;
 
         binary(stdin);
         binary(stdout);
         binary(stderr);
 
-        if(WSAStartup(MAKEWORD(2, 2), &wsaData) != 0) {
+        if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0) {
                 winsock_perror("WSAStartup failed");
                 exit(EXIT_FAILURE);
         }
@@ -69,15 +64,6 @@ static void win_once_init(void) {
 static long eweb_init(eweb_os_t *w) {
 	UNUSED(w);
 	win_once_init();
-#if 0
-#ifndef SIGCLD
-	signal(SIGCHLD, SIG_IGN);
-#else
-	signal(SIGCLD, SIG_IGN);
-#endif
-	signal(SIGHUP,  SIG_IGN); /* ignore terminal hangups */
-	signal(SIGPIPE, SIG_IGN); /* ignore broken pipes */
-#endif
 	return 0;
 }
 
@@ -99,7 +85,7 @@ static long eweb_log(eweb_os_t *w, int error, const char *fmt, ...) {
 		return;
 	doing_shutdown = 1;
 	fputs("web-server shutting down\n", stderr); // !!
-	close(listenfd);
+	closesocket(listenfd);
 	if (sig != SIGUSR1)
 		exit(0);
 }*/
@@ -128,9 +114,6 @@ static long eweb_open(eweb_os_t *w, unsigned port) {
 		w->log(w, EWEB_ERROR, "setsockopt(SO_REUSEADDR) failed: %s", strerror(errno));
 		return -1;
 	}
-	/* as soon as listenfd is set, keep a handler so we can close it on exit */
-	//signal(SIGINT, inthandler);
-	//signal(SIGTERM, inthandler);
 
 	serv_addr.sin_family = AF_INET;
 	serv_addr.sin_addr.s_addr = htonl(INADDR_ANY);
@@ -154,8 +137,6 @@ static long eweb_open(eweb_os_t *w, unsigned port) {
 static long eweb_accept(eweb_os_t *w, int listenfd) {
 	assert(w);
 	struct sockaddr_in cli_addr = { 0 };
-	if (doing_shutdown)
-		return -1;
 	socklen_t length = sizeof(cli_addr);
 	errno = 0;
 	const int socketfd = accept(listenfd, (struct sockaddr *)&cli_addr, &length);
@@ -178,7 +159,7 @@ static long eweb_accept(eweb_os_t *w, int listenfd) {
 static long eweb_close(eweb_os_t *w, int fd) {
 	assert(w);
 	UNUSED(w);
-	return close(fd); // !? closesocket(fd);
+	return closesocket(fd);
 }
 
 static long eweb_write(eweb_os_t *w, int fd, const void *buf, size_t count) {
@@ -201,15 +182,16 @@ static void eweb_exit(eweb_os_t *w, int code) {
 
 /*static void tcp_stack_cleanup(void)
 {
-	if(tcp_stack_initialized && WSACleanup() != 0) {
-		winsock_perror("WSACleanup() failed");
-		exit(EXIT_FAILURE);
-	}
 }*/
 
 static long eweb_deint(eweb_os_t *w) {
 	assert(w);
 	UNUSED(w);
+	if (tcp_stack_initialized && WSACleanup() != 0) {
+		winsock_perror("WSACleanup() failed");
+		exit(EXIT_FAILURE);
+	}
+
 	return EWEB_OK;
 }
 
@@ -316,9 +298,10 @@ eweb_os_t *eweb_os_new(eweb_allocator_t *allocator, eweb_threading_mode_e mode) 
 		/* fall-through */
 	case EWEB_TM_MULTI_THREADS_E:
 		break;
-	case EWEB_TM_SINGLE_THREAD_E: /* fall-through */
 	default:
 		fprintf(stderr, "Warning! Single threaded only\n");
+		/* fall-through */
+	case EWEB_TM_SINGLE_THREAD_E: 
 		mode = EWEB_TM_SINGLE_THREAD_E;
 		break;
 	}
