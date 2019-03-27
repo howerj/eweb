@@ -97,7 +97,7 @@ typedef struct {
 typedef block_t string_t;
 
 /**@todo these should use eweb_allocator_t */
-string_t *new_string(eweb_os_t *w, long increments);
+string_t *string_new(eweb_os_t *w, long increments);
 string_t *string_add(eweb_os_t *w, string_t * s, const char *char_array);
 char *string_chars(eweb_os_t *w, string_t * s);
 void string_free(eweb_os_t *w, string_t * s);

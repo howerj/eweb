@@ -145,7 +145,7 @@ static int send_file_response(eweb_os_t *w, eweb_os_hit_args_t *args, const char
 	assert(w);
 	UNUSED(request_body);
 	FILE *file = NULL;
-	string_t *response = new_string(w, FILE_CHUNK_SIZE);
+	string_t *response = string_new(w, FILE_CHUNK_SIZE);
 	if (!response)
 		goto fail;
 
@@ -233,7 +233,7 @@ static int send_response(eweb_os_t *w, eweb_os_hit_args_t *args, const char *pat
 	assert(path);
 	UNUSED(type);
 	const size_t path_length = strlen(path);
-	if (!strncmp(&path[path_length - 3], "api", 3))
+	if (path_length > 3 && !strncmp(&path[path_length - 3], "api", 3))
 		return send_api_response(w, args, path, request_body);
 	if (path_length == 0)
 		return send_file_response(w, args, "index.html", request_body, 10);

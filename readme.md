@@ -16,7 +16,7 @@ This project is a work in progress.
   * [x] Change favicon
   * [x] Change project references
 * [x] Remove gnu99 features
-* [ ] Separate out operating system dependencies
+* [x] Separate out operating system dependencies
   * [x] Create callback mechanism
   * [x] Make a Unix file, containing operating system specific components
   * [x] Port to Windows

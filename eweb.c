@@ -129,7 +129,7 @@ int eweb_write_header(eweb_os_t *w, const int socket_fd, const char *head, long 
 	assert(head);
 	int r = EWEB_OK;
 	char cl[64+1] = { 0 };
-	string_t *header = new_string(w, 255);
+	string_t *header = string_new(w, 255);
 	if (!header)
 		goto fail;
 	if (!string_add(w, header, head))
@@ -189,7 +189,7 @@ int eweb_not_found_404(eweb_os_t *w, eweb_os_hit_args_t *args, const char *info)
 
 int eweb_ok_200(eweb_os_t *w, eweb_os_hit_args_t *args, const char *custom_headers, const char *html, const char *path) {
 	assert(w);
-	string_t *headers = new_string(w, 255);
+	string_t *headers = string_new(w, 255);
 	if (!headers)
 		goto fail;
 	if (!string_add(w, headers, "HTTP/1.1 200 OK\nServer: eweb\nCache-Control: no-cache\nPragma: no-cache"))
@@ -224,7 +224,7 @@ eweb_http_header_t eweb_get_header(const char *name, const char *request, const 
 
 	while (*ptr++ != ':' && ptr <= end) ; // !?
 	while (isblank(*++ptr) && ptr <= end) ; // !?
-	while (x < (sizeof(retval.value) - 1) && *ptr != '\r' && *ptr != '\n' && ptr <= end)
+	while (x < (sizeof(retval.value) - 1)/*!!*/ && *ptr != '\r' && *ptr != '\n' && ptr <= end)
 		retval.value[x++] = *ptr++;
 	retval.value[x] = 0;
 	return retval;
@@ -251,7 +251,10 @@ int eweb_hit(eweb_os_t *w, eweb_os_hit_args_t *args) {
 	assert(args);
 
 	long i = 0, request_size = 0;
-	args->buffer = new_string(w, READ_BUF_LEN);
+	args->buffer = string_new(w, READ_BUF_LEN);
+	if (!args->buffer) {
+		return EWEB_ERROR;
+	}
 
 	/* We need to read the HTTP headers first so loop until we receive "\r\n\r\n" */
 	while (eweb_get_body_start(string_chars(w, args->buffer)) < 0 && args->buffer->used_bytes <= MAX_INCOMING_REQUEST) {
@@ -297,7 +300,7 @@ int eweb_hit(eweb_os_t *w, eweb_os_hit_args_t *args) {
 
 	if (request_size <= 0) { /* cannot read request, so we'll stop */
 		if (eweb_forbidden_403(w, args, "failed to read http request") != EWEB_OK) // !? Odd error message...
-			return EWEB_ERROR;
+			return EWEB_ERROR; // !! call eweb_finish_hit??
 		return eweb_finish_hit(w, args, 3);
 	}
 
@@ -556,7 +559,7 @@ void string_free(eweb_os_t *w, string_t * s) {
 	eweb_free(w, s);
 }
 
-string_t *new_string(eweb_os_t *w, const long increments) {
+string_t *string_new(eweb_os_t *w, const long increments) {
 	string_t *s = eweb_malloc_or_die(w, sizeof(*s));
 	if (!s)
 		goto fail;
